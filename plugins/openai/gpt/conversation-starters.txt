@@ -1,0 +1,4 @@
+Compile and deploy this contract to Sepolia
+Run a security audit on this Solidity contract
+Call a function on a contract I already deployed
+What does this contract's ABI look like?

@@ -1,0 +1,8 @@
+{
+  "name": "remix-solidity",
+  "displayName": "Remix Solidity",
+  "version": "1.0.0",
+  "description": "Compile, audit, deploy and call Solidity smart contracts directly from Claude. Supports deployment and contract calls via a browser wallet signing page.",
+  "author": "Remix Labs",
+  "license": "MIT"
+}

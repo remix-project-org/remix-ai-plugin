@@ -1,0 +1,8 @@
+node_modules/
+dist/
+sign-dist/
+sign-app/node_modules/
+sign-app/dist/
+.env
+*.local
+remix-solidity-plugin.zip

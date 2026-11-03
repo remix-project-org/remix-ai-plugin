@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "remix-solidity": {
+      "type": "http",
+      "url": "https://harmonize-empirical-vaporizer.ngrok-free.dev/mcp"
+    }
+  }
+}
