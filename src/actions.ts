@@ -8,7 +8,6 @@
 
 import { JsonRpcProvider } from "ethers";
 import { compileSolidity } from "./tools/compile.js";
-import { getAuditChecklist, doAudit } from "./tools/audit.js";
 import { encode, decodeTransaction, parseAbi, toJsonSafe, readContract as readContractCall, type DecodedCall, type EncodeArgs, type ReadArgs } from "./tools/abi.js";
 import { createTransaction, getTransaction, setReceipt, type PendingTransaction } from "./store.js";
 import { PUBLIC_RPCS, explorerUrl } from "./rpcs.js";
@@ -181,47 +180,4 @@ export async function checkTransaction(transactionId: string, waitSeconds = 0) {
   }
 
   return payload;
-}
-
-// --- get_audit_checklist ---------------------------------------------------
-
-export interface ChecklistArgs {
-  sources: Sources;
-  maxCategories?: number;
-  model?: string;
-}
-
-export async function auditChecklist(args: ChecklistArgs) {
-  const result = await getAuditChecklist(
-    args.sources,
-    args.maxCategories ?? 12,
-    args.model ?? "Balanced"
-  );
-  return {
-    success: result.success,
-    matchedCategories: result.matchedCategories,
-    model: result.model,
-    ...(result.skippedReason ? { skippedReason: result.skippedReason } : {}),
-    markdown: result.markdown,
-    matches: result.matches,
-  };
-}
-
-// --- do_audit --------------------------------------------------------------
-
-export interface AuditArgs {
-  sources: Sources;
-  checklist: string;
-  model?: string;
-}
-
-export async function audit(args: AuditArgs) {
-  const result = await doAudit(args.sources, args.checklist, args.model ?? "Balanced");
-  return {
-    success: result.success,
-    findingsCount: result.findingsCount,
-    severity: result.severity,
-    model: result.model,
-    markdown: result.markdown,
-  };
 }

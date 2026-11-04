@@ -9,17 +9,12 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { compile, transact, checkTransaction, auditChecklist, audit, encodeCall, readContract } from "./actions.js";
+import { compile, transact, checkTransaction, encodeCall, readContract } from "./actions.js";
 import { SIGN_WIDGET_URI, SIGN_WIDGET_MIME, SIGN_WIDGET_TOOL_META, signWidgetHtml } from "./widget.js";
 
 const sourcesSchema = z
   .record(z.object({ content: z.string() }))
   .describe("Map of filename → { content } for each Solidity file");
-
-const modelSchema = z
-  .enum(["Fast", "Balanced", "Deep"])
-  .optional()
-  .describe('Quality tier. "Fast" = small model, "Balanced" = default, "Deep" = highest quality (slower, pricier).');
 
 const abiSchema = z
   .union([z.string(), z.array(z.unknown()), z.record(z.unknown())])
@@ -215,61 +210,6 @@ export function createMcpServer(): McpServer {
     async (args) => guard(() => readContract(args))
   );
 
-  server.registerTool(
-    "get_audit_checklist",
-    {
-      title: "Build security audit checklist",
-      description: [
-        "Analyze one or more Solidity contracts and return a security audit checklist — a ranked list of audit categories most relevant to these contracts.",
-        "Strips each contract to a declaration skeleton, then matches it against a taxonomy of 70+ security categories (access control, reentrancy, oracle manipulation, flash loans, ERC token issues, etc.).",
-        "Use this as the first step before running do_audit: the returned checklist focuses the full audit on what actually matters for these contracts.",
-      ].join(" "),
-      inputSchema: {
-        sources: sourcesSchema,
-        maxCategories: z
-          .number()
-          .int()
-          .min(1)
-          .max(20)
-          .optional()
-          .describe("Maximum number of audit categories to return (default: 12, max: 20)"),
-        model: modelSchema,
-      },
-      annotations: { readOnlyHint: true, openWorldHint: true },
-      _meta: {
-        "openai/toolInvocation/invoking": "Matching audit categories…",
-        "openai/toolInvocation/invoked": "Built the audit checklist.",
-      },
-    },
-    async (args) => guard(() => auditChecklist(args))
-  );
-
-  server.registerTool(
-    "do_audit",
-    {
-      title: "Run security audit",
-      description: [
-        "Perform a complete AI-powered security audit of one or more Solidity contracts.",
-        "Takes the contract sources and an audit checklist (typically from get_audit_checklist) and returns a detailed markdown audit report with findings classified by severity: CRITICAL, HIGH, MEDIUM, LOW, INFORMATIONAL.",
-        "Each finding includes description, location, impact, and remediation guidance.",
-        "Recommended flow: 1) compile_solidity to check for errors, 2) get_audit_checklist to identify relevant categories, 3) do_audit with the returned checklist for the full report.",
-      ].join(" "),
-      inputSchema: {
-        sources: sourcesSchema,
-        checklist: z
-          .string()
-          .describe("Audit checklist in markdown format — use the markdown field from get_audit_checklist, or provide a custom checklist"),
-        model: modelSchema,
-      },
-      annotations: { readOnlyHint: true, openWorldHint: true },
-      _meta: {
-        "openai/toolInvocation/invoking": "Auditing the contracts…",
-        "openai/toolInvocation/invoked": "Audit complete.",
-      },
-    },
-    async (args) => guard(() => audit(args))
-  );
-
   // -------------------------------------------------------------------------
   // MCP Apps view rendered inline for `transact` results
   // -------------------------------------------------------------------------
@@ -367,45 +307,6 @@ export function createMcpServer(): McpServer {
               `ABI:`,
               "```json",
               abi,
-              "```",
-            ].join("\n"),
-          },
-        },
-      ],
-    })
-  );
-
-  server.registerPrompt(
-    "audit-contract",
-    {
-      title: "Audit Contract",
-      description: "Run the full compile → checklist → audit flow and return a severity-ranked security report.",
-      argsSchema: {
-        source: z.string().describe("Solidity source code of the contract to audit"),
-        filename: z.string().optional().describe('Filename, e.g. "Vault.sol". Defaults to "Contract.sol".'),
-        model: z.string().optional().describe('Quality tier: "Fast", "Balanced" (default) or "Deep".'),
-      },
-    },
-    ({ source, filename, model }) => ({
-      messages: [
-        {
-          role: "user" as const,
-          content: {
-            type: "text" as const,
-            text: [
-              `Please run a security audit of the following Solidity contract.`,
-              `Filename: ${filename ?? "Contract.sol"}`,
-              `Model tier: ${model ?? "Balanced"}`,
-              ``,
-              `Steps:`,
-              `1. Call compile_solidity and report any errors before continuing.`,
-              `2. Call get_audit_checklist on the source.`,
-              `3. Call do_audit with the source and the checklist markdown.`,
-              `4. Present the report, leading with CRITICAL and HIGH findings.`,
-              ``,
-              `Source:`,
-              "```solidity",
-              source,
               "```",
             ].join("\n"),
           },

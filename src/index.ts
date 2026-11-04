@@ -8,7 +8,6 @@ import { createMcpServer } from "./mcp.js";
 import { isActionPath, handleAction } from "./rest.js";
 import { openApiSpec, pluginManifest } from "./openapi.js";
 import { getTransaction, markSigning, markSent, markFailed, setWallets, type DetectedWallet } from "./store.js";
-import { provider as auditProvider } from "./tools/audit.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SIGN_DIST = path.resolve(__dirname, "..", "sign-dist");
@@ -293,18 +292,17 @@ const server = http.createServer(async (req, res) => {
       clients: ["claude", "openai"],
       version: "1.0.0",
       auth: AUTH_TOKEN ? "bearer" : "none",
-      auditProvider: auditProvider(),
       endpoints: {
         mcp:       "POST|GET|DELETE /mcp",
         manifest:  "GET  /.well-known/ai-plugin.json",
         openapi:   "GET  /openapi.json",
-        actions:   "POST /actions/{compile,encode-call,read-contract,transact,check-transaction,audit-checklist,audit}",
+        actions:   "POST /actions/{compile,encode-call,read-contract,transact,check-transaction}",
         signPage:  "GET  /sign/:id",
         txApi:     "GET  /api/tx/:id",
         complete:  "POST /api/tx/:id/complete",
         wallets:   "POST /api/tx/:id/wallets",
       },
-      tools: ["compile_solidity", "encode_call", "read_contract", "transact", "check_transaction", "get_audit_checklist", "do_audit"],
+      tools: ["compile_solidity", "encode_call", "read_contract", "transact", "check_transaction"],
     });
     return;
   }

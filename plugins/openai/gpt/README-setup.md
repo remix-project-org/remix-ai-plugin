@@ -1,6 +1,6 @@
 <!-- Operator setup notes, not end-user documentation. -->
 
-Two ways to use this server from ChatGPT. Both expose the same five capabilities.
+Two ways to use this server from ChatGPT. Both expose the same capabilities.
 
 ## A. MCP connector (ChatGPT developer mode / Apps SDK)
 
@@ -9,8 +9,8 @@ Settings → Connectors → Create. Point it at:
     <BASE_URL>/mcp
 
 Transport: Streamable HTTP. Auth: none, or Bearer if `PLUGIN_AUTH_TOKEN` is set.
-Tools exposed: compile_solidity, transact, check_transaction, get_audit_checklist, do_audit.
-Prompts exposed: deploy-contract, call-contract, audit-contract.
+Tools exposed: compile_solidity, encode_call, read_contract, transact, check_transaction.
+Prompts exposed: deploy-contract, call-contract.
 
 ## B. Custom GPT Action
 

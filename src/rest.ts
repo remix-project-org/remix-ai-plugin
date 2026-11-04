@@ -3,7 +3,7 @@
 // described by openapi.ts so they can be imported as a custom GPT Action.
 // ---------------------------------------------------------------------------
 
-import { compile, transact, checkTransaction, auditChecklist, audit, encodeCall, readContract, type Sources } from "./actions.js";
+import { compile, transact, checkTransaction, encodeCall, readContract, type Sources } from "./actions.js";
 
 export interface RestResult {
   status: number;
@@ -89,21 +89,6 @@ const handlers: Record<string, Handler> = {
     return checkTransaction(body.transactionId, Number(body.waitSeconds) || 0);
   },
 
-  "/actions/audit-checklist": (body) =>
-    auditChecklist({
-      sources: normalizeSources(body?.sources),
-      maxCategories: body?.maxCategories,
-      model: body?.model,
-    }),
-
-  "/actions/audit": (body) => {
-    if (typeof body?.checklist !== "string") throw new Error("checklist is required");
-    return audit({
-      sources: normalizeSources(body?.sources),
-      checklist: body.checklist,
-      model: body?.model,
-    });
-  },
 };
 
 export function isActionPath(pathname: string): boolean {

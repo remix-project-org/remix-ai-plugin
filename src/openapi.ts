@@ -42,13 +42,6 @@ const argsSchema = {
   description: 'Arguments in ABI order. uint/int as decimal strings (e.g. "1000000000000000000"), addresses as 0x strings, arrays/tuples as JSON arrays.',
 };
 
-const modelSchema = {
-  type: "string",
-  enum: ["Fast", "Balanced", "Deep"],
-  default: "Balanced",
-  description: "Quality tier of the model used for the analysis.",
-};
-
 export function openApiSpec(baseUrl: string, requiresAuth: boolean) {
   const security = requiresAuth ? { security: [{ bearerAuth: [] }] } : {};
 
@@ -57,7 +50,7 @@ export function openApiSpec(baseUrl: string, requiresAuth: boolean) {
     info: {
       title: "Remix Solidity",
       description:
-        "Compile, audit and deploy Solidity smart contracts. Deployments and contract calls are signed by the user in a browser wallet — this API never holds private keys.",
+        "Compile, deploy and interact with Solidity smart contracts. Deployments and contract calls are signed by the user in a browser wallet — this API never holds private keys.",
       version: "1.0.0",
     },
     servers: [{ url: baseUrl }],
@@ -236,60 +229,6 @@ export function openApiSpec(baseUrl: string, requiresAuth: boolean) {
           responses: { "200": { description: "Decoded result", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } },
         },
       },
-
-      "/actions/audit-checklist": {
-        post: {
-          operationId: "getAuditChecklist",
-          summary: "Build a security audit checklist for the contracts",
-          description:
-            "Matches the contracts against a taxonomy of 70+ security categories and returns the most relevant ones as markdown. Run this before runAudit.",
-          ...security,
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    sources: sourcesSchema,
-                    maxCategories: { type: "integer", minimum: 1, maximum: 20, default: 12 },
-                    model: modelSchema,
-                  },
-                  required: ["sources"],
-                },
-              },
-            },
-          },
-          responses: { "200": { description: "Checklist", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } },
-        },
-      },
-
-      "/actions/audit": {
-        post: {
-          operationId: "runAudit",
-          summary: "Run a full security audit",
-          description:
-            "Audits the contracts against the checklist and returns a markdown report with findings classified CRITICAL / HIGH / MEDIUM / LOW / INFORMATIONAL.",
-          ...security,
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    sources: sourcesSchema,
-                    checklist: { type: "string", description: "Checklist markdown from getAuditChecklist, or a custom one." },
-                    model: modelSchema,
-                  },
-                  required: ["sources", "checklist"],
-                },
-              },
-            },
-          },
-          responses: { "200": { description: "Audit report", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } },
-        },
-      },
     },
   };
 }
@@ -304,11 +243,10 @@ export function pluginManifest(baseUrl: string, requiresAuth: boolean) {
     name_for_human: "Remix Solidity",
     name_for_model: "remix_solidity",
     description_for_human:
-      "Compile, audit and deploy Solidity smart contracts. You sign every transaction in your own browser wallet.",
+      "Compile, deploy and interact with Solidity smart contracts. You sign every transaction in your own browser wallet.",
     description_for_model: [
       "Tools for working with Solidity smart contracts.",
       "Use compileSolidity to compile sources and obtain ABI and bytecode.",
-      "Use getAuditChecklist then runAudit to produce a security audit report; always run the checklist first.",
       "Use readContract to read state from a deployed contract (no transaction needed).",
       "Use encodeCall to build transaction data — a deployment (bytecode + constructor args) or a function call — never hand-encode hex.",
       "Then use prepareTransaction to deploy (omit 'to') or call a function (pass 'to'), show the returned signUrl to the user as a clickable link, and call checkTransaction with waitSeconds: 20 until status is 'sent' or 'failed'.",

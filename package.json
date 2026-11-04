@@ -13,7 +13,6 @@
     "build:widget": "esbuild widget/sign-widget.ts --bundle --format=esm --minify --target=es2022 --outfile=widget-dist/sign-widget.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.4.0",
     "@modelcontextprotocol/ext-apps": "^1.7.5",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@remix-project/remix-solidity": "^0.5.8",

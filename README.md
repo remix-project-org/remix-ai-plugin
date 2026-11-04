@@ -1,6 +1,6 @@
 # remix-ai-plugin
 
-Remix Solidity tooling for **Claude** and **ChatGPT** from a single server. Compile contracts, sign and broadcast transactions through a browser wallet, and run AI-powered security audits — all from a conversation.
+Remix Solidity tooling for **Claude** and **ChatGPT** from a single server. Compile contracts, read on-chain state, and sign and broadcast transactions through a browser wallet — all from a conversation.
 
 ## Tools
 
@@ -11,10 +11,6 @@ Remix Solidity tooling for **Claude** and **ChatGPT** from a single server. Comp
 | `read_contract` | Call a view/pure function on a deployed contract — no wallet needed. |
 | `transact` | Save a transaction and return a `signUrl` the user opens to sign. Clients with MCP Apps support also show an inline card that tracks it live. |
 | `check_transaction` | Transaction status (`pending` → `signing` → `sent` / `failed`), detected browser wallets, explorer links. Supports long-polling via `waitSeconds`. |
-| `get_audit_checklist` | Rank the security audit categories most relevant to the contracts. |
-| `do_audit` | Full audit report with findings by severity (CRITICAL → INFORMATIONAL). |
-
-Audit tools take an optional `model` tier: `Fast`, `Balanced` (default) or `Deep`.
 
 ## Layout
 
@@ -37,8 +33,6 @@ cp .env.example .env   # fill in the values below
 
 | Variable | Description |
 |---|---|
-| `AUDIT_PROVIDER` | `openai` (default), `anthropic` or `openrouter` |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` | Key for the chosen audit provider |
 | `WALLETCONNECT_PROJECT_ID` | Needed for the signing page |
 | `BASE_URL` | Public URL of the server (used in sign links and the OpenAPI spec) |
 | `PORT` | Default `3000` |
