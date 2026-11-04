@@ -298,13 +298,13 @@ const server = http.createServer(async (req, res) => {
         mcp:       "POST|GET|DELETE /mcp",
         manifest:  "GET  /.well-known/ai-plugin.json",
         openapi:   "GET  /openapi.json",
-        actions:   "POST /actions/{compile,transact,check-transaction,audit-checklist,audit}",
+        actions:   "POST /actions/{compile,encode-call,read-contract,transact,check-transaction,audit-checklist,audit}",
         signPage:  "GET  /sign/:id",
         txApi:     "GET  /api/tx/:id",
         complete:  "POST /api/tx/:id/complete",
         wallets:   "POST /api/tx/:id/wallets",
       },
-      tools: ["compile_solidity", "transact", "check_transaction", "get_audit_checklist", "do_audit"],
+      tools: ["compile_solidity", "encode_call", "read_contract", "transact", "check_transaction", "get_audit_checklist", "do_audit"],
     });
     return;
   }

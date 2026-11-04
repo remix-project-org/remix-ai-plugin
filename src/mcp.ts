@@ -9,7 +9,8 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { compile, transact, checkTransaction, auditChecklist, audit } from "./actions.js";
+import { compile, transact, checkTransaction, auditChecklist, audit, encodeCall, readContract } from "./actions.js";
+import { SIGN_WIDGET_URI, SIGN_WIDGET_MIME, SIGN_WIDGET_TOOL_META, signWidgetHtml } from "./widget.js";
 
 const sourcesSchema = z
   .record(z.object({ content: z.string() }))
@@ -20,9 +21,20 @@ const modelSchema = z
   .optional()
   .describe('Quality tier. "Fast" = small model, "Balanced" = default, "Deep" = highest quality (slower, pricier).');
 
+const abiSchema = z
+  .union([z.string(), z.array(z.unknown()), z.record(z.unknown())])
+  .describe('Contract ABI: the JSON ABI (array or string), the compiled contract output from compile_solidity, or human-readable signatures like "function transfer(address to, uint256 amount)".');
+
+const argsSchema = z
+  .array(z.unknown())
+  .optional()
+  .describe('Arguments in ABI order. Pass uint/int values as decimal strings (e.g. "1000000000000000000"), addresses as 0x strings, arrays/tuples as JSON arrays.');
+
 function text(payload: unknown, isError = false) {
+  const structured = payload && typeof payload === "object" && !Array.isArray(payload);
   return {
     content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+    ...(structured ? { structuredContent: payload as Record<string, unknown> } : {}),
     ...(isError ? { isError: true } : {}),
   };
 }
@@ -72,8 +84,10 @@ export function createMcpServer(): McpServer {
       description: [
         "Save a transaction for the user to review, sign and broadcast via their browser wallet.",
         "Returns a signUrl — show it to the user as a clickable link; they open it to sign with MetaMask or WalletConnect.",
-        "For contract deployment omit 'to' and set 'data' to the compiled bytecode.",
-        "For a regular call set 'to' to the contract address and 'data' to the encoded calldata.",
+        "Clients that support MCP Apps also render an inline card that tracks the transaction live.",
+        "Build 'data' with encode_call — never hand-encode hex.",
+        "For contract deployment omit 'to' and set 'data' to the deployment data from encode_call (bytecode + constructor args).",
+        "For a regular call set 'to' to the contract address and 'data' to the calldata from encode_call.",
       ].join(" "),
       inputSchema: {
         data: z
@@ -97,9 +111,13 @@ export function createMcpServer(): McpServer {
           .string()
           .optional()
           .describe('Human-readable description shown on the signing page, e.g. "Deploy MyToken.sol".'),
+        abi: abiSchema
+          .optional()
+          .describe("Optional contract ABI so the signing page can show the decoded function and arguments. Not needed if `data` came from encode_call."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       _meta: {
+        ...SIGN_WIDGET_TOOL_META,
         "openai/toolInvocation/invoking": "Preparing the transaction…",
         "openai/toolInvocation/invoked": "Transaction ready to sign.",
       },
@@ -117,12 +135,21 @@ export function createMcpServer(): McpServer {
         "Returns the transaction data (to, data, value, gasLimit) along with status.",
         "Status values: 'pending' (not opened yet), 'signing' (user is in the wallet confirmation dialog),",
         "'sent' (broadcast — txHash is available), 'failed' (user rejected or error occurred).",
-        "If status is 'pending' or 'signing', wait a few seconds and call again.",
+        "Pass waitSeconds (up to 25) to long-poll: the call returns as soon as something changes, so you don't need to call it repeatedly.",
+        "If status is 'pending' or 'signing', call again with waitSeconds.",
+        "Once sent and mined, the result includes explorerUrl and, for deployments, contractAddress.",
         "signingPageOpened and walletsDetected tell you whether the user has opened the page and which browser wallets (e.g. MetaMask) it found;",
         "if walletsDetected is an empty list, help the user install a wallet or use WalletConnect.",
       ].join(" "),
       inputSchema: {
         transactionId: z.string().uuid().describe("The transactionId returned by the transact tool."),
+        waitSeconds: z
+          .number()
+          .int()
+          .min(0)
+          .max(25)
+          .optional()
+          .describe("Long-poll up to this many seconds for a status change before returning (default 0 = return immediately). 20 is a good value."),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
       _meta: {
@@ -130,7 +157,62 @@ export function createMcpServer(): McpServer {
         "openai/toolInvocation/invoked": "Checked the transaction.",
       },
     },
-    async ({ transactionId }) => guard(() => checkTransaction(transactionId))
+    async ({ transactionId, waitSeconds }) => guard(() => checkTransaction(transactionId, waitSeconds))
+  );
+
+  server.registerTool(
+    "encode_call",
+    {
+      title: "Encode contract call or deployment",
+      description: [
+        "ABI-encode transaction data so you never have to build hex by hand.",
+        "Function call: pass abi, functionName and args → returns calldata for transact (with 'to' = contract address).",
+        "Deployment: pass abi, bytecode (evm.bytecode.object from compile_solidity) and the constructor args → returns deployment data for transact (no 'to').",
+      ].join(" "),
+      inputSchema: {
+        abi: abiSchema,
+        functionName: z
+          .string()
+          .optional()
+          .describe('Function name or full signature (e.g. "transfer" or "transfer(address,uint256)"). Omit when encoding a deployment.'),
+        args: argsSchema,
+        bytecode: z
+          .string()
+          .optional()
+          .describe("Contract creation bytecode. When set, encodes a deployment with `args` as the constructor arguments."),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+      _meta: {
+        "openai/toolInvocation/invoking": "Encoding the call…",
+        "openai/toolInvocation/invoked": "Encoded the call.",
+      },
+    },
+    async (args) => guard(() => encodeCall(args))
+  );
+
+  server.registerTool(
+    "read_contract",
+    {
+      title: "Read contract state",
+      description: [
+        "Call a view/pure function on a deployed contract (eth_call) and return the decoded result — no wallet or transaction needed.",
+        "Use this for balances, owners, totals, configuration, etc. Calling a state-changing function only simulates it.",
+      ].join(" "),
+      inputSchema: {
+        address: z.string().describe("Deployed contract address"),
+        chainId: z.number().int().describe("EVM chain ID (e.g. 11155111 = Sepolia, 1 = Ethereum mainnet, 8453 = Base)."),
+        abi: abiSchema,
+        functionName: z.string().describe('Function name or full signature, e.g. "balanceOf"'),
+        args: argsSchema,
+        from: z.string().optional().describe("Optional caller address (msg.sender) for the call."),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+      _meta: {
+        "openai/toolInvocation/invoking": "Reading the contract…",
+        "openai/toolInvocation/invoked": "Read the contract.",
+      },
+    },
+    async (args) => guard(() => readContract(args))
   );
 
   server.registerTool(
@@ -189,6 +271,23 @@ export function createMcpServer(): McpServer {
   );
 
   // -------------------------------------------------------------------------
+  // MCP Apps view rendered inline for `transact` results
+  // -------------------------------------------------------------------------
+
+  server.registerResource(
+    "sign-transaction-view",
+    SIGN_WIDGET_URI,
+    {
+      title: "Transaction signing card",
+      description: "Shows a pending transaction, opens the signing page and tracks its status.",
+      mimeType: SIGN_WIDGET_MIME,
+    },
+    async () => ({
+      contents: [{ uri: SIGN_WIDGET_URI, mimeType: SIGN_WIDGET_MIME, text: signWidgetHtml() }],
+    })
+  );
+
+  // -------------------------------------------------------------------------
   // Prompts — mirror the skills in plugins/claude/skills. Claude exposes them
   // as slash commands, ChatGPT in the connector's prompt picker.
   // -------------------------------------------------------------------------
@@ -217,9 +316,10 @@ export function createMcpServer(): McpServer {
               ``,
               `Steps:`,
               `1. Call compile_solidity with the source below.`,
-              `2. If compilation succeeds, call transact with the bytecode (no 'to' field — it's a deployment).`,
-              `3. Show the sign URL to the user and poll check_transaction until status is 'sent' or 'failed'.`,
-              `4. On success, report the tx hash and the deployed address from receipt.contractAddress.`,
+              `2. If compilation succeeds, call encode_call with the contract's abi, its bytecode and any constructor args (ask me for values if needed).`,
+              `3. Call transact with the returned data (no 'to' field — it's a deployment).`,
+              `4. Show the sign URL and call check_transaction with waitSeconds: 20 until status is 'sent' or 'failed'.`,
+              `5. On success, report the tx hash and the deployed address (contractAddress).`,
               ``,
               `Source:`,
               "```solidity",
@@ -259,9 +359,10 @@ export function createMcpServer(): McpServer {
               `Value: ${value ?? "0"} wei`,
               ``,
               `Steps:`,
-              `1. ABI-encode the calldata from the ABI and arguments, and show me the encoded calldata.`,
-              `2. Call transact with to=${address}, that calldata, the chainId and the value.`,
-              `3. Show the sign URL and poll check_transaction until status is 'sent' or 'failed'.`,
+              `1. If the function is view/pure, call read_contract and report the result — no transaction needed.`,
+              `2. Otherwise call encode_call with the ABI, function name and arguments.`,
+              `3. Call transact with to=${address}, the returned data, the chainId, the value and the ABI.`,
+              `4. Show the sign URL and call check_transaction with waitSeconds: 20 until status is 'sent' or 'failed'.`,
               ``,
               `ABI:`,
               "```json",

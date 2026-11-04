@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { useAppKitAccount, useAppKitProvider } from '@reown/appkit/react'
 import { BrowserProvider, JsonRpcProvider, HDNodeWallet, type Eip1193Provider } from 'ethers'
 import { TxFields } from './components/TxFields'
+import { Preflight } from './components/Preflight'
 import { WalletOptions } from './components/WalletOptions'
 import { GeneratedAccount } from './components/GeneratedAccount'
 import { Status } from './components/Status'
 import { fetchTx, reportStatus, reportWallets } from './api'
-import { explorerTxUrl, PUBLIC_RPCS } from './chains'
+import { explorerTxUrl, PUBLIC_RPCS, CHAIN_NAMES, isTestnet } from './chains'
 import { modal } from './walletConfig'
 import { useBrowserWallets, type Eip1193Provider as InjectedProvider } from './wallets'
 import type { PendingTransaction, StatusMessage } from './types'
@@ -129,8 +130,9 @@ export default function App() {
       ...(tx.gasLimit ? { gasLimit: tx.gasLimit } : {}),
     }
 
-    // --- Generated wallet ---
+    // --- Generated wallet (testnets only) ---
     if (walletMode === 'generated' && generatedWallet) {
+      if (!isTestnet(tx.chainId)) throw new Error('Generated accounts can only be used on testnets.')
       const rpcUrl = PUBLIC_RPCS[tx.chainId ?? 0]
       if (!rpcUrl) throw new Error(`No public RPC for chain #${tx.chainId}. Use a different wallet.`)
       const provider = new JsonRpcProvider(rpcUrl)
@@ -198,6 +200,13 @@ export default function App() {
       <h1>Sign &amp; Send Transaction</h1>
       <p className="subtitle">{tx.description ?? 'Review and sign the transaction below'}</p>
 
+      {tx.chainId !== undefined && !isTestnet(tx.chainId) && (
+        <div className="mainnet-banner">
+          ⚠️ This transaction is on <strong>{CHAIN_NAMES[tx.chainId] ?? `chain #${tx.chainId}`}</strong> and spends real funds.
+          Check every field before signing.
+        </div>
+      )}
+
       <TxFields tx={tx} />
 
       {walletAddress && (
@@ -222,6 +231,7 @@ export default function App() {
         <WalletOptions
           wallets={browserWallets}
           walletsSettled={walletsSettled}
+          chainId={tx.chainId}
           onConnected={handleConnected}
           onGenerate={handleGenerate}
           onError={msg => setStatus({ type: 'error', text: msg })}
@@ -231,6 +241,8 @@ export default function App() {
       {walletMode === 'generated' && generatedWallet && (
         <GeneratedAccount wallet={generatedWallet} chainId={tx.chainId} onReplace={handleGenerate} />
       )}
+
+      {walletAddress && !done && <Preflight tx={tx} from={walletAddress} />}
 
       {walletAddress && !done && (
         <button

@@ -6,9 +6,11 @@ Remix Solidity tooling for **Claude** and **ChatGPT** from a single server. Comp
 
 | Tool | Description |
 |---|---|
-| `compile_solidity` | Compile Solidity files with the Remix compiler. Returns ABI, bytecode, errors/warnings. |
-| `transact` | Save a transaction and return a `signUrl` the user opens to sign with MetaMask / WalletConnect. |
-| `check_transaction` | Poll a transaction's status (`pending` → `signing` → `sent` / `failed`). |
+| `compile_solidity` | Compile Solidity files with the Remix compiler. Imports like `@openzeppelin/contracts/...` are fetched automatically. |
+| `encode_call` | ABI-encode a function call, or a deployment with constructor arguments. |
+| `read_contract` | Call a view/pure function on a deployed contract — no wallet needed. |
+| `transact` | Save a transaction and return a `signUrl` the user opens to sign. Clients with MCP Apps support also show an inline card that tracks it live. |
+| `check_transaction` | Transaction status (`pending` → `signing` → `sent` / `failed`), detected browser wallets, explorer links. Supports long-polling via `waitSeconds`. |
 | `get_audit_checklist` | Rank the security audit categories most relevant to the contracts. |
 | `do_audit` | Full audit report with findings by severity (CRITICAL → INFORMATIONAL). |
 
@@ -19,6 +21,7 @@ Audit tools take an optional `model` tier: `Fast`, `Balanced` (default) or `Deep
 ```
 src/              server: MCP (/mcp), REST actions (/actions/*), OpenAPI spec, signing page
 sign-app/         React wallet-signing app (built into sign-dist/)
+widget/           in-chat transaction card (MCP Apps), bundled into widget-dist/
 plugins/claude/   Claude plugin: manifest, .mcp.json, skills
 plugins/openai/   Custom GPT instructions and conversation starters
 ```

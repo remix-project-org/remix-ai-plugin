@@ -1,6 +1,6 @@
 ---
 name: call-contract
-description: Send a transaction to call a function on an already-deployed smart contract. Use when the user wants to interact with, invoke, or execute a function on an existing contract address.
+description: Read from or send a transaction to an already-deployed smart contract. Use when the user wants to query, interact with, invoke, or execute a function on an existing contract address.
 ---
 
 ## Call a Contract Function
@@ -12,19 +12,22 @@ description: Send a transaction to call a function on an already-deployed smart 
    - Chain ID (default to Sepolia, chain ID 11155111, if unspecified)
    - ETH value to send, if payable (default 0)
 
-2. Encode the calldata using the ABI and the function arguments. Show the user the encoded calldata before proceeding.
+2. If the function is `view` or `pure`, call `read_contract` and report the result — no transaction or wallet needed. Stop here.
 
-3. Call `transact` with:
+3. Otherwise call `encode_call` with the ABI, function name and arguments. Never hand-encode hex.
+
+4. Call `transact` with:
    - `to`: the contract address
-   - `data`: the ABI-encoded calldata
+   - `data`: the `data` returned by `encode_call`
    - `value`: ETH in hex wei if the function is payable, otherwise omit
    - `chainId`: the target chain ID
+   - `abi`: the ABI, so the signing page shows the decoded call
    - `description`: e.g. "Call transfer() on 0x1234…"
 
-4. Show the returned `signUrl` to the user as a clickable link and tell them to open it to sign with their wallet.
+5. Show the returned `signUrl` to the user as a clickable link and tell them to open it to sign with their wallet.
 
-5. Immediately start polling with `check_transaction` every 3–5 seconds until status is `sent` or `failed`.
+6. Call `check_transaction` with `waitSeconds: 20`, repeating until status is `sent` or `failed`. If `walletsDetected` is an empty list, suggest installing MetaMask or using WalletConnect.
 
-6. When done:
-   - **sent**: Report the transaction hash and link to the block explorer.
+7. When done:
+   - **sent**: Report the transaction hash and its `explorerUrl`.
    - **failed**: Report the error message.

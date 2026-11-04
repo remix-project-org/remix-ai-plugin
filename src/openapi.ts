@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // OpenAPI 3.1 description of the /actions/* endpoints.
 // Paste `${BASE_URL}/openapi.json` into a custom GPT's "Create new action"
-// → "Import from URL" to get the same five capabilities as the MCP connector.
+// → "Import from URL" to get the same capabilities as the MCP connector.
 // ---------------------------------------------------------------------------
 
 const sourcesSchema = {
@@ -28,6 +28,18 @@ const sourcesSchema = {
       },
     },
   ],
+};
+
+const abiSchema = {
+  description:
+    'Contract ABI: a JSON ABI array, the compiled contract output from compileSolidity, or human-readable signatures like "function transfer(address to, uint256 amount)".',
+  oneOf: [{ type: "array", items: {} }, { type: "string" }, { type: "object", additionalProperties: true }],
+};
+
+const argsSchema = {
+  type: "array",
+  items: {},
+  description: 'Arguments in ABI order. uint/int as decimal strings (e.g. "1000000000000000000"), addresses as 0x strings, arrays/tuples as JSON arrays.',
 };
 
 const modelSchema = {
@@ -99,7 +111,7 @@ export function openApiSpec(baseUrl: string, requiresAuth: boolean) {
           operationId: "prepareTransaction",
           summary: "Prepare a transaction for the user to sign",
           description:
-            "Stores a transaction and returns a signUrl. Show the signUrl to the user as a clickable link — they open it and sign with MetaMask or WalletConnect. Omit 'to' and pass bytecode as 'data' to deploy a contract.",
+            "Stores a transaction and returns a signUrl. Show the signUrl to the user as a clickable link — they open it and sign with MetaMask or WalletConnect. Build 'data' with encodeCall (never hand-encode hex). Omit 'to' to deploy a contract.",
           ...security,
           requestBody: {
             required: true,
@@ -114,6 +126,7 @@ export function openApiSpec(baseUrl: string, requiresAuth: boolean) {
                     chainId: { type: "integer", description: "EVM chain ID. 11155111 = Sepolia, 1 = mainnet, 8453 = Base." },
                     gasLimit: { type: "string", description: 'Hex gas limit (e.g. "0x186A0"). Omit to let the wallet estimate.' },
                     description: { type: "string", description: "Label shown on the signing page." },
+                    abi: { ...abiSchema, description: "Optional ABI so the signing page can show the decoded call. Not needed if data came from encodeCall." },
                   },
                   required: ["data"],
                 },
@@ -154,13 +167,73 @@ export function openApiSpec(baseUrl: string, requiresAuth: boolean) {
               "application/json": {
                 schema: {
                   type: "object",
-                  properties: { transactionId: { type: "string", description: "Id returned by prepareTransaction." } },
+                  properties: {
+                    transactionId: { type: "string", description: "Id returned by prepareTransaction." },
+                    waitSeconds: { type: "integer", minimum: 0, maximum: 25, description: "Long-poll up to this many seconds for a status change before returning. 20 is a good value." },
+                  },
                   required: ["transactionId"],
                 },
               },
             },
           },
           responses: { "200": { description: "Transaction state", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } },
+        },
+      },
+
+      "/actions/encode-call": {
+        post: {
+          operationId: "encodeCall",
+          summary: "ABI-encode a function call or a deployment with constructor args",
+          description:
+            "Function call: pass abi, functionName and args → calldata for prepareTransaction (with 'to'). Deployment: pass abi, bytecode (evm.bytecode.object from compileSolidity) and constructor args → deployment data for prepareTransaction (no 'to').",
+          ...security,
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    abi: abiSchema,
+                    functionName: { type: "string", description: 'Function name or signature, e.g. "transfer". Omit for a deployment.' },
+                    args: argsSchema,
+                    bytecode: { type: "string", description: "Creation bytecode. When set, args are the constructor arguments." },
+                  },
+                  required: ["abi"],
+                },
+              },
+            },
+          },
+          responses: { "200": { description: "Encoded data", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } },
+        },
+      },
+
+      "/actions/read-contract": {
+        post: {
+          operationId: "readContract",
+          summary: "Call a view/pure function on a deployed contract",
+          description: "Runs an eth_call and returns the decoded result. No wallet or transaction needed.",
+          ...security,
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    address: { type: "string", description: "Deployed contract address" },
+                    chainId: { type: "integer", description: "EVM chain ID, e.g. 11155111 = Sepolia" },
+                    abi: abiSchema,
+                    functionName: { type: "string", description: 'Function name or signature, e.g. "balanceOf"' },
+                    args: argsSchema,
+                    from: { type: "string", description: "Optional caller address" },
+                  },
+                  required: ["address", "chainId", "abi", "functionName"],
+                },
+              },
+            },
+          },
+          responses: { "200": { description: "Decoded result", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } },
         },
       },
 
@@ -236,7 +309,9 @@ export function pluginManifest(baseUrl: string, requiresAuth: boolean) {
       "Tools for working with Solidity smart contracts.",
       "Use compileSolidity to compile sources and obtain ABI and bytecode.",
       "Use getAuditChecklist then runAudit to produce a security audit report; always run the checklist first.",
-      "Use prepareTransaction to deploy a contract (omit 'to', pass bytecode as 'data') or to call a function (pass 'to' and ABI-encoded calldata), then show the returned signUrl to the user as a clickable link and poll checkTransaction every few seconds until status is 'sent' or 'failed'.",
+      "Use readContract to read state from a deployed contract (no transaction needed).",
+      "Use encodeCall to build transaction data — a deployment (bytecode + constructor args) or a function call — never hand-encode hex.",
+      "Then use prepareTransaction to deploy (omit 'to') or call a function (pass 'to'), show the returned signUrl to the user as a clickable link, and call checkTransaction with waitSeconds: 20 until status is 'sent' or 'failed'.",
       "Never ask the user for a private key or seed phrase — signing always happens in the user's own browser wallet.",
       "Default to Sepolia (chainId 11155111) when the user does not name a chain.",
     ].join(" "),

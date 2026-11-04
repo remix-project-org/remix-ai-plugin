@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { HDNodeWallet } from 'ethers'
 import { modal, wcProjectId } from '../walletConfig'
+import { isTestnet } from '../chains'
 import type { BrowserWallet, Eip1193Provider } from '../wallets'
 
 export const GENERATED_WALLET_KEY = 'sign-app:generated-wallet'
@@ -8,12 +9,13 @@ export const GENERATED_WALLET_KEY = 'sign-app:generated-wallet'
 interface Props {
   wallets: BrowserWallet[]
   walletsSettled: boolean
+  chainId: number | undefined
   onConnected: (address: string, type: 'injected' | 'walletconnect', provider?: Eip1193Provider) => void
   onGenerate: (wallet: HDNodeWallet) => void
   onError: (msg: string) => void
 }
 
-export function WalletOptions({ wallets, walletsSettled, onConnected, onGenerate, onError }: Props) {
+export function WalletOptions({ wallets, walletsSettled, chainId, onConnected, onGenerate, onError }: Props) {
   const [savedAddress, setSavedAddress] = useState<string | null>(null)
 
   useEffect(() => {
@@ -98,17 +100,20 @@ export function WalletOptions({ wallets, walletsSettled, onConnected, onGenerate
         </a>
       )}
 
-      <button className="wallet-btn" onClick={generateAccount}>
-        <span className="wallet-icon">✨</span>
-        <div>
-          <div className="wallet-btn-title">Generated account</div>
-          <div className="wallet-btn-sub">
-            {savedAddress
-              ? `${savedAddress.slice(0, 6)}…${savedAddress.slice(-4)} — saved in browser`
-              : 'Creates and saves a keypair in your browser'}
+      {/* Its key is stored unencrypted in localStorage — never offer it where real funds are at stake. */}
+      {isTestnet(chainId) && (
+        <button className="wallet-btn" onClick={generateAccount}>
+          <span className="wallet-icon">✨</span>
+          <div>
+            <div className="wallet-btn-title">Generated account <span className="warn-badge">testnet only</span></div>
+            <div className="wallet-btn-sub">
+              {savedAddress
+                ? `${savedAddress.slice(0, 6)}…${savedAddress.slice(-4)} — key stored unencrypted in this browser`
+                : 'Creates a throwaway key stored unencrypted in this browser'}
+            </div>
           </div>
-        </div>
-      </button>
+        </button>
+      )}
     </div>
   )
 }

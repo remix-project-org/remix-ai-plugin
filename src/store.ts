@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import type { DecodedCall } from "./tools/abi.js";
 
 export interface DetectedWallet {
   name: string;
@@ -18,6 +19,8 @@ export interface PendingTransaction {
   txHash?: string;
   errorMessage?: string;
   receipt?: object;
+  /** Human-readable form of `data`, when an ABI was available. */
+  decoded?: DecodedCall;
   /** Browser wallets found by the signing page; unset until the page is opened. */
   wallets?: { detected: DetectedWallet[]; reportedAt: number };
 }

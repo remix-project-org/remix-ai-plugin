@@ -11,16 +11,18 @@ description: Deploy a Solidity smart contract to an EVM chain. Use when the user
 
 3. From the compilation result, extract the bytecode (`evm.bytecode.object`) for the target contract. If there are multiple contracts, ask the user which one to deploy.
 
-4. Call `transact` with:
-   - `data`: the bytecode (prefix with `0x` if not already)
+4. If the constructor takes arguments, ask the user for any values they haven't given. Then call `encode_call` with the contract's `abi`, its `bytecode` and the constructor `args`. Never hand-encode hex.
+
+5. Call `transact` with:
+   - `data`: the `data` returned by `encode_call`
    - `chainId`: the target chain ID
    - `description`: a short label like "Deploy MyToken.sol"
    - No `to` field (deployment)
 
-5. Show the returned `signUrl` to the user as a clickable link and tell them to open it to sign with their wallet.
+6. Show the returned `signUrl` to the user as a clickable link and tell them to open it to sign with their wallet. (If the client renders the inline transaction card, it tracks progress live too.)
 
-6. Immediately start polling with `check_transaction` every 3–5 seconds. Keep polling until status is `sent` or `failed`.
+7. Call `check_transaction` with `waitSeconds: 20`, repeating until status is `sent` with a receipt, or `failed`. If `walletsDetected` is an empty list, tell the user no browser wallet was found and suggest MetaMask or WalletConnect.
 
-7. When done:
-   - **sent**: Report the transaction hash and, once the receipt is available, the deployed contract address (found in `receipt.contractAddress`).
+8. When done:
+   - **sent**: Report the transaction hash (`explorerUrl`) and the deployed contract address (`contractAddress`).
    - **failed**: Report the error message.

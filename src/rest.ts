@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------
-// REST front door — the same five capabilities as plain JSON POST endpoints,
+// REST front door — the same capabilities as plain JSON POST endpoints,
 // described by openapi.ts so they can be imported as a custom GPT Action.
 // ---------------------------------------------------------------------------
 
-import { compile, transact, checkTransaction, auditChecklist, audit, type Sources } from "./actions.js";
+import { compile, transact, checkTransaction, auditChecklist, audit, encodeCall, readContract, type Sources } from "./actions.js";
 
 export interface RestResult {
   status: number;
@@ -59,12 +59,34 @@ const handlers: Record<string, Handler> = {
       chainId: body.chainId,
       gasLimit: body.gasLimit,
       description: body.description,
+      abi: body.abi,
+    });
+  },
+
+  "/actions/encode-call": (body) => {
+    if (body?.abi === undefined) throw new Error("abi is required");
+    if (body.args !== undefined && !Array.isArray(body.args)) throw new Error("args must be an array");
+    return encodeCall({ abi: body.abi, functionName: body.functionName, args: body.args, bytecode: body.bytecode });
+  },
+
+  "/actions/read-contract": (body) => {
+    if (typeof body?.address !== "string") throw new Error("address is required");
+    if (!Number.isInteger(body?.chainId)) throw new Error("chainId is required and must be an integer");
+    if (typeof body?.functionName !== "string") throw new Error("functionName is required");
+    if (body.args !== undefined && !Array.isArray(body.args)) throw new Error("args must be an array");
+    return readContract({
+      address: body.address,
+      chainId: body.chainId,
+      abi: body.abi,
+      functionName: body.functionName,
+      args: body.args,
+      from: body.from,
     });
   },
 
   "/actions/check-transaction": (body) => {
     if (typeof body?.transactionId !== "string") throw new Error("transactionId is required");
-    return checkTransaction(body.transactionId);
+    return checkTransaction(body.transactionId, Number(body.waitSeconds) || 0);
   },
 
   "/actions/audit-checklist": (body) =>

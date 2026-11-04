@@ -1,4 +1,5 @@
 import { Compiler } from "@remix-project/remix-solidity";
+import { remixImportCallback } from "./imports.js";
 
 const DEFAULT_VERSION = "v0.8.28+commit.7893614a";
 
@@ -29,7 +30,8 @@ export interface CompileResult {
 export async function compileSolidity(input: CompileInput): Promise<CompileResult> {
   const { sources, version = DEFAULT_VERSION, settings = DEFAULT_SETTINGS } = input;
 
-  const compiler = new Compiler();
+  // Imports not present in `sources` (e.g. @openzeppelin/contracts/...) are fetched on demand.
+  const compiler = new Compiler(remixImportCallback);
 
   return new Promise<CompileResult>((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -51,7 +53,8 @@ export async function compileSolidity(input: CompileInput): Promise<CompileResul
       } else {
         resolve({
           success: false,
-          errors: data.errors ?? [],
+          // Import-resolution failures arrive as a single `error` rather than `errors`.
+          errors: data.errors ?? (data.error ? [data.error] : []),
           version,
         });
       }

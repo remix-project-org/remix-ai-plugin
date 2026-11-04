@@ -262,3 +262,30 @@ a.wallet-btn { text-decoration: none; }
   margin-top: .25rem;
   word-break: break-all;
 }
+
+/* ── Decoded call ── */
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.decoded-args { display: flex; flex-direction: column; gap: .35rem; margin-top: .5rem; }
+.decoded-arg { display: flex; flex-direction: column; padding-left: .6rem; border-left: 2px solid #3f3f46; }
+.decoded-name { font-size: .75rem; color: #a1a1aa; }
+
+/* ── Mainnet warning ── */
+.mainnet-banner {
+  background: #451a03;
+  border: 1px solid #b45309;
+  color: #fcd34d;
+  border-radius: 10px;
+  padding: .7rem .9rem;
+  font-size: .85rem;
+  margin-bottom: 1rem;
+}
+
+/* ── Pre-flight simulation ── */
+.preflight { border-radius: 10px; padding: .7rem .9rem; font-size: .82rem; margin-bottom: 1rem; }
+.muted-box { background: #18181b; border: 1px solid #3f3f46; color: #a1a1aa; }
+.warn-box { background: #451a03; border: 1px solid #b45309; color: #fcd34d; }
+.preflight-row { display: flex; justify-content: space-between; gap: 1rem; padding: .1rem 0; }
+.preflight-detail { margin-top: .35rem; word-break: break-word; }
+
+/* ── Generated account warning ── */
+.gen-warning { font-size: .78rem; color: #fcd34d; margin: 0 0 .75rem; line-height: 1.4; }

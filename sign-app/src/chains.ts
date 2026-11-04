@@ -42,3 +42,15 @@ export function explorerTxUrl(chainId: number | undefined, hash: string): string
   const base = EXPLORERS[chainId]
   return base ? base + hash : undefined
 }
+
+/** Networks where transactions spend test ETH only. */
+const TESTNETS = new Set([11155111, 84532])
+
+export const CHAIN_NAMES: Record<number, string> = {
+  1: 'Ethereum mainnet', 11155111: 'Sepolia', 137: 'Polygon', 8453: 'Base',
+  84532: 'Base Sepolia', 42161: 'Arbitrum One', 10: 'Optimism',
+}
+
+export function isTestnet(chainId: number | undefined): boolean {
+  return chainId !== undefined && TESTNETS.has(chainId)
+}

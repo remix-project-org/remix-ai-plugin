@@ -47,10 +47,15 @@ export function GeneratedAccount({ wallet, chainId, onReplace }: Props) {
       <div className="gen-header">
         <span>✨ Generated account</span>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <span className="warn-badge">needs ETH for gas</span>
+          <span className="warn-badge">testnet only</span>
           <button className="copy-btn" onClick={replaceAccount} title="Generate a new account">new</button>
         </div>
       </div>
+
+      <p className="gen-warning">
+        Throwaway account for testing. Its private key is stored unencrypted in this browser —
+        anyone with access to this browser can use it. Never send real funds to it.
+      </p>
 
       <div className="key-row">
         <span className="key-label">Address</span>

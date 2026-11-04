@@ -9,6 +9,13 @@ export interface PendingTransaction {
   status: 'pending' | 'signing' | 'sent' | 'failed'
   txHash?: string
   errorMessage?: string
+  decoded?: DecodedCall
+}
+
+export interface DecodedCall {
+  kind: 'call' | 'deploy'
+  signature: string
+  args?: Array<{ name: string; type: string; value: unknown }>
 }
 
 export interface AppConfig {

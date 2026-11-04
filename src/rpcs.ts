@@ -7,3 +7,18 @@ export const PUBLIC_RPCS: Record<number, string> = {
   42161:    'https://shared.eu-central-1.getblock.io/d8fb0ccf25a646edaaf777d8abb10a62',
   10:       'https://shared.eu-central-1.getblock.io/7ab36af4c9c346bbabab70e9c54d9c6c',
 }
+
+const EXPLORERS: Record<number, string> = {
+  1:        'https://etherscan.io',
+  11155111: 'https://sepolia.etherscan.io',
+  137:      'https://polygonscan.com',
+  8453:     'https://basescan.org',
+  84532:    'https://sepolia.basescan.org',
+  42161:    'https://arbiscan.io',
+  10:       'https://optimistic.etherscan.io',
+}
+
+export function explorerUrl(chainId: number | undefined, kind: 'tx' | 'address', value: string): string | undefined {
+  const base = chainId ? EXPLORERS[chainId] : undefined
+  return base ? `${base}/${kind}/${value}` : undefined
+}
