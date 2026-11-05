@@ -3,6 +3,7 @@
 // described by openapi.ts so they can be imported as a custom GPT Action.
 // ---------------------------------------------------------------------------
 
+import { trackEvent } from "./analytics.js";
 import { compile, transact, checkTransaction, encodeCall, readContract, type Sources } from "./actions.js";
 
 export interface RestResult {
@@ -51,10 +52,14 @@ const handlers: Record<string, Handler> = {
     }),
 
   "/actions/transact": (body) => {
-    if (typeof body?.data !== "string") throw new Error("data is required and must be a hex string");
+    if (body?.data !== undefined && typeof body.data !== "string") throw new Error("data must be a hex string");
+    if (body?.args !== undefined && !Array.isArray(body.args)) throw new Error("args must be an array");
     return transact({
-      data: body.data,
-      to: body.to,
+      data: body?.data,
+      functionName: body?.functionName,
+      args: body?.args,
+      bytecode: body?.bytecode,
+      to: body?.to,
       value: body.value,
       chainId: body.chainId,
       gasLimit: body.gasLimit,
@@ -98,9 +103,15 @@ export function isActionPath(pathname: string): boolean {
 export async function handleAction(pathname: string, body: unknown): Promise<RestResult> {
   const handler = handlers[pathname];
   if (!handler) return { status: 404, body: { error: "Unknown action" } };
+  // "/actions/encode-call" → "encode_call", matching the MCP tool names in analytics
+  const tool = pathname.slice("/actions/".length).replace(/-/g, "_");
+  const chainId = Number.isInteger((body as any)?.chainId) ? (body as any).chainId : undefined;
   try {
-    return { status: 200, body: await handler(body) };
+    const result = await handler(body);
+    trackEvent({ category: "tool", action: tool, name: "rest", value: chainId });
+    return { status: 200, body: result };
   } catch (err: any) {
+    trackEvent({ category: "tool_error", action: tool, name: "rest", value: chainId });
     return { status: 400, body: { success: false, error: err?.message ?? String(err) } };
   }
 }

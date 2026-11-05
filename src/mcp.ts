@@ -8,8 +8,9 @@
 // ---------------------------------------------------------------------------
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import { compile, transact, checkTransaction, encodeCall, readContract } from "./actions.js";
+import { z, type ZodRawShape } from "zod";
+import { compile, transact, checkTransaction, encodeCall, readContract, type TransactArgs } from "./actions.js";
+import { trackEvent } from "./analytics.js";
 import { SIGN_WIDGET_URI, SIGN_WIDGET_MIME, SIGN_WIDGET_TOOL_META, signWidgetHtml } from "./widget.js";
 
 const sourcesSchema = z
@@ -25,6 +26,47 @@ const argsSchema = z
   .optional()
   .describe('Arguments in ABI order. Pass uint/int values as decimal strings (e.g. "1000000000000000000"), addresses as 0x strings, arrays/tuples as JSON arrays.');
 
+// Typed as a plain ZodRawShape on purpose: letting TypeScript infer this many
+// optional fields through registerTool's overloads exhausts tsc's memory.
+const transactInputSchema: ZodRawShape = {
+    to: z.string().optional().describe("Contract address for a function call. Omit for a deployment."),
+    abi: abiSchema
+      .optional()
+      .describe("Contract ABI. Required with functionName or bytecode; with pre-encoded data it is only used to show the decoded call."),
+    functionName: z
+      .string()
+      .optional()
+      .describe('Function to call, by name or full signature (e.g. "transfer"). Requires to and abi.'),
+    args: argsSchema.describe(
+      'Function or constructor arguments in ABI order. uint/int as decimal strings, addresses as 0x strings, arrays/tuples as JSON arrays.'
+    ),
+    bytecode: z
+      .string()
+      .optional()
+      .describe("Creation bytecode for a deployment (evm.bytecode.object from compile_solidity). Requires abi; args are the constructor arguments."),
+    data: z
+      .string()
+      .optional()
+      .describe("Pre-encoded transaction data. Only needed when not passing abi + functionName/bytecode."),
+    value: z
+      .string()
+      .optional()
+      .describe('ETH to send, as a hex string (e.g. "0x0") or decimal string in wei.'),
+    chainId: z
+      .number()
+      .int()
+      .optional()
+      .describe("EVM chain ID (e.g. 1 = Ethereum mainnet, 11155111 = Sepolia, 8453 = Base)."),
+    gasLimit: z
+      .string()
+      .optional()
+      .describe('Gas limit as a hex string (e.g. "0x186A0"). Omit to let the wallet estimate.'),
+    description: z
+      .string()
+      .optional()
+      .describe('Human-readable description shown on the signing page, e.g. "Deploy MyToken.sol".'),
+  };
+
 function text(payload: unknown, isError = false) {
   const structured = payload && typeof payload === "object" && !Array.isArray(payload);
   return {
@@ -34,16 +76,29 @@ function text(payload: unknown, isError = false) {
   };
 }
 
-async function guard(fn: () => Promise<unknown> | unknown) {
+async function guard(fn: () => Promise<unknown> | unknown, onDone?: (ok: boolean) => void) {
   try {
-    return text(await fn());
+    const result = text(await fn());
+    onDone?.(true);
+    return result;
   } catch (err: any) {
+    onDone?.(false);
     return text({ success: false, error: err?.message ?? String(err) }, true);
   }
 }
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({ name: "remix-solidity", version: "1.0.0" });
+
+  /** Usage analytics callback for a tool call, attributed to the connecting client (e.g. Claude, ChatGPT). */
+  const track = (tool: string, extra: { sessionId?: string }, chainId?: number) => (ok: boolean) =>
+    trackEvent({
+      category: ok ? "tool" : "tool_error",
+      action: tool,
+      name: server.server.getClientVersion()?.name ?? "unknown",
+      value: chainId,
+      visitorKey: extra.sessionId,
+    });
 
   server.registerTool(
     "compile_solidity",
@@ -68,48 +123,25 @@ export function createMcpServer(): McpServer {
         "openai/toolInvocation/invoked": "Compiled the contract.",
       },
     },
-    async ({ sources, version, settings }) =>
-      guard(() => compile({ sources, version, settings: settings as Record<string, unknown> | undefined }))
+    async ({ sources, version, settings }, extra) =>
+      guard(() => compile({ sources, version, settings: settings as Record<string, unknown> | undefined }), track("compile_solidity", extra))
   );
 
   server.registerTool(
     "transact",
     {
-      title: "Prepare transaction for signing",
+      title: "Sign transaction (deploy or call)",
       description: [
-        "Save a transaction for the user to review, sign and broadcast via their browser wallet.",
-        "Returns a signUrl — show it to the user as a clickable link; they open it to sign with MetaMask or WalletConnect.",
-        "Clients that support MCP Apps also render an inline card that tracks the transaction live.",
-        "Build 'data' with encode_call — never hand-encode hex.",
-        "For contract deployment omit 'to' and set 'data' to the deployment data from encode_call (bytecode + constructor args).",
-        "For a regular call set 'to' to the contract address and 'data' to the calldata from encode_call.",
+        "Open the signing page so the user can review, sign and broadcast a transaction in their own browser wallet.",
+        "Use this for EVERY contract deployment and EVERY state-changing function call — it is the only way to send a transaction.",
+        "Deploy: pass abi, bytecode (evm.bytecode.object from compile_solidity) and constructor args; omit 'to'.",
+        "Call: pass to (contract address), abi, functionName and args (plus value for payable functions).",
+        "The server encodes everything — never hand-encode hex. Pre-encoded 'data' is also accepted.",
+        "Returns a signUrl — show it to the user as a clickable link. Clients that support MCP Apps also render an inline card with an 'Open signing page' button that tracks the transaction live.",
+        "The result includes a clear-signing review: a plain-language intent, where it was verified (ERC-7730 descriptor, verified source, or only your ABI) and risk warnings. Tell the user about any 'danger' warning before they sign.",
+        "For view/pure functions use read_contract instead — no signature needed.",
       ].join(" "),
-      inputSchema: {
-        data: z
-          .string()
-          .describe("Hex-encoded transaction data. For deployment: the contract bytecode. For calls: the ABI-encoded calldata."),
-        to: z.string().optional().describe("Recipient address. Omit for contract deployment."),
-        value: z
-          .string()
-          .optional()
-          .describe('ETH to send, as a hex string (e.g. "0x0") or decimal string in wei.'),
-        chainId: z
-          .number()
-          .int()
-          .optional()
-          .describe("EVM chain ID (e.g. 1 = Ethereum mainnet, 11155111 = Sepolia, 8453 = Base)."),
-        gasLimit: z
-          .string()
-          .optional()
-          .describe('Gas limit as a hex string (e.g. "0x186A0"). Omit to let the wallet estimate.'),
-        description: z
-          .string()
-          .optional()
-          .describe('Human-readable description shown on the signing page, e.g. "Deploy MyToken.sol".'),
-        abi: abiSchema
-          .optional()
-          .describe("Optional contract ABI so the signing page can show the decoded function and arguments. Not needed if `data` came from encode_call."),
-      },
+      inputSchema: transactInputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       _meta: {
         ...SIGN_WIDGET_TOOL_META,
@@ -117,7 +149,8 @@ export function createMcpServer(): McpServer {
         "openai/toolInvocation/invoked": "Transaction ready to sign.",
       },
     },
-    async (args) => guard(() => transact(args))
+    async (args, extra) =>
+      guard(() => transact(args as TransactArgs), track("transact", extra, (args as TransactArgs).chainId))
   );
 
   server.registerTool(
@@ -129,10 +162,12 @@ export function createMcpServer(): McpServer {
         "Call this after sharing a signUrl with the user.",
         "Returns the transaction data (to, data, value, gasLimit) along with status.",
         "Status values: 'pending' (not opened yet), 'signing' (user is in the wallet confirmation dialog),",
-        "'sent' (broadcast — txHash is available), 'failed' (user rejected or error occurred).",
+        "'sent' (broadcast — txHash is available, waiting to be mined), 'confirmed' (mined successfully), 'reverted' (mined but reverted),",
+        "'rejected' (the latest signing attempt was rejected or failed — see errorMessage; the user can retry on the same page).",
+        "confirmed/reverted come from the on-chain receipt and are final; errors of earlier attempts are only listed in attempts.",
         "Pass waitSeconds (up to 25) to long-poll: the call returns as soon as something changes, so you don't need to call it repeatedly.",
-        "If status is 'pending' or 'signing', call again with waitSeconds.",
-        "Once sent and mined, the result includes explorerUrl and, for deployments, contractAddress.",
+        "If status is 'pending', 'signing' or 'sent', call again with waitSeconds.",
+        "Once sent, the result includes explorerUrl and, for confirmed deployments, contractAddress.",
         "signingPageOpened and walletsDetected tell you whether the user has opened the page and which browser wallets (e.g. MetaMask) it found;",
         "if walletsDetected is an empty list, help the user install a wallet or use WalletConnect.",
       ].join(" "),
@@ -148,11 +183,14 @@ export function createMcpServer(): McpServer {
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
       _meta: {
+        // The in-chat card calls this tool itself to track the transaction; ChatGPT requires the opt-in.
+        "openai/widgetAccessible": true,
         "openai/toolInvocation/invoking": "Checking the transaction…",
         "openai/toolInvocation/invoked": "Checked the transaction.",
       },
     },
-    async ({ transactionId, waitSeconds }) => guard(() => checkTransaction(transactionId, waitSeconds))
+    async ({ transactionId, waitSeconds }, extra) =>
+      guard(() => checkTransaction(transactionId, waitSeconds), track("check_transaction", extra))
   );
 
   server.registerTool(
@@ -160,7 +198,8 @@ export function createMcpServer(): McpServer {
     {
       title: "Encode contract call or deployment",
       description: [
-        "ABI-encode transaction data so you never have to build hex by hand.",
+        "ABI-encode transaction data without sending anything (e.g. to show or inspect calldata).",
+        "To actually deploy or call a contract, use transact directly with abi + functionName/bytecode + args — it encodes for you.",
         "Function call: pass abi, functionName and args → returns calldata for transact (with 'to' = contract address).",
         "Deployment: pass abi, bytecode (evm.bytecode.object from compile_solidity) and the constructor args → returns deployment data for transact (no 'to').",
       ].join(" "),
@@ -182,7 +221,7 @@ export function createMcpServer(): McpServer {
         "openai/toolInvocation/invoked": "Encoded the call.",
       },
     },
-    async (args) => guard(() => encodeCall(args))
+    async (args, extra) => guard(() => encodeCall(args), track("encode_call", extra))
   );
 
   server.registerTool(
@@ -207,7 +246,7 @@ export function createMcpServer(): McpServer {
         "openai/toolInvocation/invoked": "Read the contract.",
       },
     },
-    async (args) => guard(() => readContract(args))
+    async (args, extra) => guard(() => readContract(args), track("read_contract", extra, args.chainId))
   );
 
   // -------------------------------------------------------------------------
@@ -256,10 +295,9 @@ export function createMcpServer(): McpServer {
               ``,
               `Steps:`,
               `1. Call compile_solidity with the source below.`,
-              `2. If compilation succeeds, call encode_call with the contract's abi, its bytecode and any constructor args (ask me for values if needed).`,
-              `3. Call transact with the returned data (no 'to' field — it's a deployment).`,
-              `4. Show the sign URL and call check_transaction with waitSeconds: 20 until status is 'sent' or 'failed'.`,
-              `5. On success, report the tx hash and the deployed address (contractAddress).`,
+              `2. If compilation succeeds, call transact with the contract's abi, its bytecode (evm.bytecode.object) and any constructor args (ask me for values if needed). Omit 'to' — it's a deployment.`,
+              `3. Show the sign URL and call check_transaction with waitSeconds: 20 until status is 'confirmed', 'reverted' or 'rejected'.`,
+              `4. On success, report the tx hash and the deployed address (contractAddress).`,
               ``,
               `Source:`,
               "```solidity",
@@ -300,9 +338,8 @@ export function createMcpServer(): McpServer {
               ``,
               `Steps:`,
               `1. If the function is view/pure, call read_contract and report the result — no transaction needed.`,
-              `2. Otherwise call encode_call with the ABI, function name and arguments.`,
-              `3. Call transact with to=${address}, the returned data, the chainId, the value and the ABI.`,
-              `4. Show the sign URL and call check_transaction with waitSeconds: 20 until status is 'sent' or 'failed'.`,
+              `2. Otherwise call transact with to=${address}, the ABI, the function name, the arguments, the chainId and the value.`,
+              `3. Show the sign URL and call check_transaction with waitSeconds: 20 until status is 'confirmed', 'reverted' or 'rejected'.`,
               ``,
               `ABI:`,
               "```json",

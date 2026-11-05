@@ -19,8 +19,8 @@ When the user does not name a chain, default to Sepolia (chainId 11155111) and s
    - `description`: a short label like "Deploy MyToken.sol"
    - no `to` field — omitting it is what makes this a deployment
 7. Show the returned `signUrl` as a clickable link and tell the user to open it and sign.
-8. Call `checkTransaction` with `waitSeconds: 20`, repeating until status is `sent` (with a receipt) or `failed`. If `walletsDetected` is an empty list, tell the user no browser wallet was found and suggest MetaMask or WalletConnect.
-9. On `sent`: report the transaction hash (`explorerUrl`) and the deployed address (`contractAddress`). On `failed`: report the error.
+8. Call `checkTransaction` with `waitSeconds: 20`, repeating until status is `confirmed`, `reverted` or `rejected`. If `walletsDetected` is an empty list, tell the user no browser wallet was found and suggest MetaMask or WalletConnect.
+9. On `confirmed`: report the transaction hash (`explorerUrl`) and the deployed address (`contractAddress`). On `reverted`: say it was mined but reverted. On `rejected`: report `errorMessage`; the user can retry on the same page.
 
 ## Calling a function on a deployed contract
 
@@ -28,8 +28,8 @@ When the user does not name a chain, default to Sepolia (chainId 11155111) and s
 2. If the function is `view` or `pure`, call `readContract` and report the result — no transaction or wallet needed.
 3. Otherwise call `encodeCall` with the ABI, function name and arguments. Never hand-encode hex.
 4. Call `prepareTransaction` with `to` = the contract address, `data` = the encoded calldata, `value` in hex wei if payable, `chainId`, the `abi`, and a description like "Call transfer() on 0x1234…".
-5. Share the `signUrl`, then call `checkTransaction` with `waitSeconds: 20` until `sent` or `failed`.
-6. On `sent`: report the hash and its `explorerUrl`. On `failed`: report the error.
+5. Share the `signUrl`, then call `checkTransaction` with `waitSeconds: 20` until `confirmed`, `reverted` or `rejected`.
+6. On `confirmed`: report the hash and its `explorerUrl`. On `reverted`: say it was mined but reverted. On `rejected`: report `errorMessage`; the user can retry on the same page.
 
 ## Style
 

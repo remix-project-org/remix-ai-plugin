@@ -15,6 +15,13 @@ interface Decoded {
   args?: Array<{ name: string; type: string; value: unknown }>;
 }
 
+interface ReviewSummary {
+  intent: string;
+  source: "erc7730" | "verified" | "assistant" | "none";
+  contractName?: string;
+  warnings: Array<{ level: "danger" | "caution"; text: string }>;
+}
+
 interface TransactResult {
   transactionId: string;
   signUrl: string;
@@ -23,10 +30,11 @@ interface TransactResult {
   value?: string;
   description?: string;
   decoded?: Decoded;
+  review?: ReviewSummary;
 }
 
 interface CheckResult {
-  status: "pending" | "signing" | "sent" | "failed" | "not_found";
+  status: "pending" | "signing" | "sent" | "confirmed" | "reverted" | "rejected" | "not_found";
   signingPageOpened?: boolean;
   walletsDetected?: string[] | null;
   txHash?: string;
@@ -35,8 +43,16 @@ interface CheckResult {
   contractExplorerUrl?: string;
   error?: string;
   errorMessage?: string;
-  receipt?: { status?: number };
+  receipt?: { status?: number | null };
+  review?: ReviewSummary;
 }
+
+const TRUST: Record<ReviewSummary["source"], { label: string; tone: string }> = {
+  erc7730: { label: "Clear-signing descriptor", tone: "ok" },
+  verified: { label: "Verified contract", tone: "ok" },
+  assistant: { label: "Unverified — decoded from the assistant's ABI", tone: "warn" },
+  none: { label: "Not decoded", tone: "muted" },
+};
 
 const CHAINS: Record<number, string> = {
   1: "Ethereum", 11155111: "Sepolia", 137: "Polygon", 8453: "Base",
@@ -49,6 +65,12 @@ const root = document.getElementById("root")!;
 let tx: TransactResult | undefined;
 let check: CheckResult | undefined;
 let polling = false;
+
+// Poll cadence: fast while something can happen soon, slower after a rejected
+// attempt (the user may retry on the signing page), backing off on errors.
+const POLL_MS = 4000;
+const POLL_AFTER_REJECT_MS = 10000;
+const POLL_MAX_BACKOFF_MS = 30000;
 
 // --- helpers -----------------------------------------------------------------
 
@@ -89,20 +111,29 @@ async function open(url: string) {
 
 // --- rendering ---------------------------------------------------------------
 
+/** Receipt first, then status; errorMessage only for a rejected attempt with no receipt. */
 function statusView(): { tone: string; label: string; detail: string } {
   if (!check) return { tone: "idle", label: "Waiting for signature", detail: "Open the signing page to review and sign with your wallet." };
+  if (check.status === "not_found") {
+    return { tone: "error", label: "Expired", detail: "This transaction expired (1 hour). Ask for a new one." };
+  }
+  if (check.receipt) {
+    if (check.receipt.status === 0) return { tone: "error", label: "Reverted", detail: "The transaction was mined but reverted." };
+    return { tone: "ok", label: tx?.to ? "Confirmed" : "Contract deployed", detail: "Mined successfully." };
+  }
   switch (check.status) {
-    case "not_found":
-      return { tone: "error", label: "Expired", detail: "This transaction expired (1 hour). Ask for a new one." };
-    case "failed":
-      return { tone: "error", label: "Failed", detail: esc(check.errorMessage ?? check.error ?? "The transaction was rejected or failed.") };
+    case "rejected":
+      return {
+        tone: "error",
+        label: "Failed",
+        detail: `${esc(check.errorMessage ?? check.error ?? "The signing attempt was rejected or failed.")} You can retry on the signing page.`,
+      };
     case "signing":
       return { tone: "busy", label: "Confirm in your wallet", detail: "Waiting for you to approve in the wallet dialog." };
     case "sent":
-      if (check.receipt?.status === 0) return { tone: "error", label: "Reverted", detail: "The transaction was mined but reverted." };
-      return check.receipt
-        ? { tone: "ok", label: tx?.to ? "Confirmed" : "Contract deployed", detail: "Mined successfully." }
-        : { tone: "busy", label: "Broadcast", detail: "Waiting for the transaction to be mined…" };
+    case "confirmed":
+    case "reverted":
+      return { tone: "busy", label: "Broadcast", detail: "Waiting for the transaction to be mined…" };
     default:
       if (!check.signingPageOpened) return { tone: "idle", label: "Waiting for signature", detail: "Open the signing page to review and sign with your wallet." };
       if (check.walletsDetected && check.walletsDetected.length === 0) {
@@ -119,18 +150,24 @@ function render() {
   }
   const s = statusView();
   const chain = tx.chainId ? (CHAINS[tx.chainId] ?? `Chain ${tx.chainId}`) : "Wallet default";
-  const done = check?.status === "sent" || check?.status === "failed" || check?.status === "not_found";
+  const canSign = !check || ["pending", "signing", "rejected"].includes(check.status);
   const decoded = tx.decoded;
+  // The review can finish building after transact returned; check_transaction then carries it.
+  const review = check?.review ?? tx.review;
+  const trust = review ? TRUST[review.source] : undefined;
 
   root.innerHTML = `
     <div class="card">
       <div class="head">
         <div>
-          <div class="title">${esc(tx.description ?? (tx.to ? "Contract call" : "Contract deployment"))}</div>
-          <div class="muted">${esc(chain)}${tx.chainId === 1 ? ' <span class="badge warn">mainnet — real funds</span>' : ""}</div>
+          <div class="title">${esc(review?.intent ?? tx.description ?? (tx.to ? "Contract call" : "Contract deployment"))}</div>
+          <div class="muted">${esc(chain)}${review?.contractName ? ` · ${esc(review.contractName)}` : ""}${tx.chainId === 1 ? ' <span class="badge warn">mainnet — real funds</span>' : ""}</div>
+          ${trust ? `<span class="trust ${trust.tone}">${esc(trust.label)}</span>` : ""}
         </div>
         <span class="pill ${s.tone}">${esc(s.label)}</span>
       </div>
+
+      ${(review?.warnings ?? []).map((w) => `<p class="risk ${w.level}">${esc(w.text)}</p>`).join("")}
 
       <dl>
         <dt>${tx.to ? "To" : "Type"}</dt><dd class="mono">${tx.to ? esc(short(tx.to)) : "Deploy new contract"}</dd>
@@ -142,7 +179,7 @@ function render() {
       ${s.detail ? `<p class="detail ${s.tone}">${s.detail}</p>` : ""}
 
       <div class="actions">
-        ${!done ? `<button class="primary" data-open="${esc(tx.signUrl)}">Open signing page</button>` : ""}
+        ${canSign ? `<button class="primary" data-open="${esc(tx.signUrl)}">${check?.status === "rejected" ? "Retry on signing page" : "Open signing page"}</button>` : ""}
         ${check?.explorerUrl ? `<button data-open="${esc(check.explorerUrl)}">View transaction</button>` : ""}
         ${check?.contractExplorerUrl ? `<button data-open="${esc(check.contractExplorerUrl)}">View contract ${esc(short(check.contractAddress ?? ""))}</button>` : ""}
       </div>
@@ -155,38 +192,54 @@ function render() {
 
 // --- live tracking ----------------------------------------------------------
 
+/** Stop polling once the outcome can no longer change: mined (receipt) or expired. */
 function isFinal(c: CheckResult): boolean {
-  return c.status === "failed" || c.status === "not_found" || (c.status === "sent" && Boolean(c.receipt));
+  return c.status === "not_found" || Boolean(c.receipt);
+}
+
+/** Tells the model about a settled outcome, once per status. */
+let reportedStatus: string | undefined;
+async function reportToModel(c: CheckResult) {
+  const settled = c.receipt || c.status === "rejected" || c.status === "not_found";
+  if (!tx || !settled || reportedStatus === c.status) return;
+  reportedStatus = c.status;
+  const outcome = c.receipt ? (c.receipt.status === 0 ? "reverted" : "confirmed") : c.status;
+  await app.updateModelContext({
+    content: [{
+      type: "text",
+      text: `Transaction ${tx.transactionId} is ${outcome}` +
+        (c.txHash ? ` (hash ${c.txHash})` : "") +
+        (c.contractAddress ? `, deployed at ${c.contractAddress}` : "") +
+        (c.status === "rejected" && c.errorMessage ? `: ${c.errorMessage}` : "") + ".",
+    }],
+  }).catch(() => { /* optional host capability */ });
 }
 
 async function track() {
   if (polling || !tx) return;
   polling = true;
   let errors = 0;
-  while (tx && errors < 5) {
+  while (tx) {
+    let delay = POLL_MS;
     try {
       const result = await app.callServerTool({
         name: "check_transaction",
-        arguments: { transactionId: tx.transactionId, waitSeconds: 20 },
+        arguments: { transactionId: tx.transactionId },
       });
-      check = parseResult(result) as CheckResult;
+      const next = parseResult(result) as CheckResult | undefined;
+      if (!next?.status) throw new Error("Unexpected check_transaction result");
+      check = next;
       errors = 0;
       render();
-      if (check && isFinal(check)) {
-        await app.updateModelContext({
-          content: [{
-            type: "text",
-            text: `Transaction ${tx.transactionId} is ${check.status}` +
-              (check.txHash ? ` (hash ${check.txHash})` : "") +
-              (check.contractAddress ? `, deployed at ${check.contractAddress}` : "") + ".",
-          }],
-        }).catch(() => { /* optional host capability */ });
-        break;
-      }
+      void reportToModel(check);
+      if (isFinal(check)) break;
+      if (check.status === "rejected") delay = POLL_AFTER_REJECT_MS;
     } catch {
+      // Keep going: a failed poll says nothing about the transaction itself.
       errors++;
-      await new Promise((r) => setTimeout(r, 3000));
+      delay = Math.min(POLL_MS * 2 ** errors, POLL_MAX_BACKOFF_MS);
     }
+    await new Promise((r) => setTimeout(r, delay));
   }
   polling = false;
 }

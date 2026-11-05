@@ -26,8 +26,9 @@ description: Read from or send a transaction to an already-deployed smart contra
 
 5. Show the returned `signUrl` to the user as a clickable link and tell them to open it to sign with their wallet.
 
-6. Call `check_transaction` with `waitSeconds: 20`, repeating until status is `sent` or `failed`. If `walletsDetected` is an empty list, suggest installing MetaMask or using WalletConnect.
+6. Call `check_transaction` with `waitSeconds: 20`, repeating until status is `confirmed`, `reverted` or `rejected`. If `walletsDetected` is an empty list, suggest installing MetaMask or using WalletConnect.
 
 7. When done:
-   - **sent**: Report the transaction hash and its `explorerUrl`.
-   - **failed**: Report the error message.
+   - **confirmed**: Report the transaction hash and its `explorerUrl`.
+   - **reverted**: Report that the call was mined but reverted, with the `explorerUrl`.
+   - **rejected**: Report `errorMessage` and tell the user they can retry on the same signing page.

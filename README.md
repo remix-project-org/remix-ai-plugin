@@ -24,7 +24,7 @@ plugins/openai/   Custom GPT instructions and conversation starters
 
 ## Setup
 
-Requires Node.js 20+.
+Requires Node.js 22+.
 
 ```bash
 npm install
@@ -37,6 +37,7 @@ cp .env.example .env   # fill in the values below
 | `BASE_URL` | Public URL of the server (used in sign links and the OpenAPI spec) |
 | `PORT` | Default `3000` |
 | `PLUGIN_AUTH_TOKEN` | Optional bearer token for `/mcp` and `/actions/*` |
+| `MATOMO_URL` / `MATOMO_SITE_ID` | Optional usage analytics, e.g. `https://matomo.remix.live/matomo/matomo.php`. Off when unset. |
 
 ## Run
 

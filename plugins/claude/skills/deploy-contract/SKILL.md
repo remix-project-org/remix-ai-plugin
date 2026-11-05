@@ -21,8 +21,9 @@ description: Deploy a Solidity smart contract to an EVM chain. Use when the user
 
 6. Show the returned `signUrl` to the user as a clickable link and tell them to open it to sign with their wallet. (If the client renders the inline transaction card, it tracks progress live too.)
 
-7. Call `check_transaction` with `waitSeconds: 20`, repeating until status is `sent` with a receipt, or `failed`. If `walletsDetected` is an empty list, tell the user no browser wallet was found and suggest MetaMask or WalletConnect.
+7. Call `check_transaction` with `waitSeconds: 20`, repeating until status is `confirmed`, `reverted` or `rejected`. If `walletsDetected` is an empty list, tell the user no browser wallet was found and suggest MetaMask or WalletConnect.
 
 8. When done:
-   - **sent**: Report the transaction hash (`explorerUrl`) and the deployed contract address (`contractAddress`).
-   - **failed**: Report the error message.
+   - **confirmed**: Report the transaction hash (`explorerUrl`) and the deployed contract address (`contractAddress`).
+   - **reverted**: Report that the deployment was mined but reverted, with the `explorerUrl`.
+   - **rejected**: Report `errorMessage` and tell the user they can retry on the same signing page (e.g. with a funded wallet).

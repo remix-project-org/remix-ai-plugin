@@ -104,7 +104,7 @@ export function openApiSpec(baseUrl: string, requiresAuth: boolean) {
           operationId: "prepareTransaction",
           summary: "Prepare a transaction for the user to sign",
           description:
-            "Stores a transaction and returns a signUrl. Show the signUrl to the user as a clickable link — they open it and sign with MetaMask or WalletConnect. Build 'data' with encodeCall (never hand-encode hex). Omit 'to' to deploy a contract.",
+            "Stores a transaction and returns a signUrl. Show the signUrl to the user as a clickable link — they open it and sign with MetaMask or WalletConnect. Build 'data' with encodeCall (never hand-encode hex). Omit 'to' to deploy a contract. The response includes a clear-signing review (intent, source, warnings); tell the user about any 'danger' warning before they sign.",
           ...security,
           requestBody: {
             required: true,
@@ -152,7 +152,7 @@ export function openApiSpec(baseUrl: string, requiresAuth: boolean) {
           operationId: "checkTransaction",
           summary: "Poll the status of a pending transaction",
           description:
-            "Status is 'pending' (sign page not opened), 'signing' (wallet dialog open), 'sent' (broadcast — txHash available) or 'failed'. Poll every few seconds until 'sent' or 'failed'. signingPageOpened / walletsDetected report whether the user opened the page and which browser wallets it found; an empty walletsDetected list means no wallet extension is installed.",
+            "Status is 'pending' (sign page not opened), 'signing' (wallet dialog open), 'sent' (broadcast — txHash available), 'confirmed' (mined successfully), 'reverted' (mined but reverted) or 'rejected' (latest signing attempt failed — the user can retry on the same page). Poll every few seconds until 'confirmed', 'reverted' or 'rejected'. signingPageOpened / walletsDetected report whether the user opened the page and which browser wallets it found; an empty walletsDetected list means no wallet extension is installed.",
           ...security,
           requestBody: {
             required: true,
@@ -249,7 +249,7 @@ export function pluginManifest(baseUrl: string, requiresAuth: boolean) {
       "Use compileSolidity to compile sources and obtain ABI and bytecode.",
       "Use readContract to read state from a deployed contract (no transaction needed).",
       "Use encodeCall to build transaction data — a deployment (bytecode + constructor args) or a function call — never hand-encode hex.",
-      "Then use prepareTransaction to deploy (omit 'to') or call a function (pass 'to'), show the returned signUrl to the user as a clickable link, and call checkTransaction with waitSeconds: 20 until status is 'sent' or 'failed'.",
+      "Then use prepareTransaction to deploy (omit 'to') or call a function (pass 'to'), show the returned signUrl to the user as a clickable link, and call checkTransaction with waitSeconds: 20 until status is 'confirmed', 'reverted' or 'rejected'.",
       "Never ask the user for a private key or seed phrase — signing always happens in the user's own browser wallet.",
       "Default to Sepolia (chainId 11155111) when the user does not name a chain.",
     ].join(" "),

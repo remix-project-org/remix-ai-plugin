@@ -289,3 +289,31 @@ a.wallet-btn { text-decoration: none; }
 
 /* ── Generated account warning ── */
 .gen-warning { font-size: .78rem; color: #fcd34d; margin: 0 0 .75rem; line-height: 1.4; }
+
+/* Clear signing */
+.clear-sign { border-radius: 12px; padding: 1rem; margin-bottom: 1rem; background: #18181b; border: 1px solid #3f3f46; }
+.clear-sign.muted-box { font-size: .85rem; }
+.clear-sign-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: .35rem; }
+.clear-sign-action { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #a1a1aa; }
+.clear-sign-intent { font-size: 1.15rem; font-weight: 600; line-height: 1.35; word-break: break-word; }
+.clear-sign-contract { font-size: .8rem; color: #a1a1aa; margin-top: .2rem; }
+.trust-badge { font-size: .7rem; padding: .15rem .5rem; border-radius: 999px; white-space: nowrap; }
+.trust-high { background: #14532d; color: #86efac; border: 1px solid #16a34a; }
+.trust-low  { background: #451a03; color: #fcd34d; border: 1px solid #b45309; }
+.trust-none { background: #27272a; color: #a1a1aa; border: 1px solid #52525b; }
+.risk { border-radius: 8px; padding: .55rem .7rem; font-size: .82rem; margin-top: .6rem; line-height: 1.4; }
+.risk-danger  { background: #450a0a; border: 1px solid #b91c1c; color: #fca5a5; }
+.risk-caution { background: #451a03; border: 1px solid #b45309; color: #fcd34d; }
+.clear-sign-fields { margin: .8rem 0 0; display: flex; flex-direction: column; gap: .5rem; }
+.clear-sign-field { display: grid; grid-template-columns: minmax(6rem, 35%) 1fr; gap: .75rem; font-size: .85rem; }
+.clear-sign-field dt { color: #a1a1aa; }
+.clear-sign-field dd { margin: 0; word-break: break-word; }
+.clear-sign-field a { color: #c7d2fe; text-decoration: none; }
+.clear-sign-field a:hover { text-decoration: underline; }
+.chip-badge.mine { margin-left: .4rem; }
+.field-warning { font-size: .75rem; color: #fcd34d; margin-top: .2rem; }
+.clear-sign-source { font-size: .75rem; color: #71717a; margin: .8rem 0 0; line-height: 1.4; }
+.clear-sign-note { font-size: .75rem; color: #a1a1aa; margin: .4rem 0 0; font-style: italic; word-break: break-word; }
+.tech-details { margin-bottom: 1rem; }
+.tech-details > summary { cursor: pointer; font-size: .8rem; color: #a1a1aa; margin-bottom: .6rem; }
+.ack { display: flex; gap: .5rem; align-items: flex-start; font-size: .82rem; color: #fca5a5; margin-bottom: .75rem; cursor: pointer; }

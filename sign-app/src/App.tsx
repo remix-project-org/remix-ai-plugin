@@ -2,15 +2,16 @@ import { useEffect, useState } from 'react'
 import { useAppKitAccount, useAppKitProvider } from '@reown/appkit/react'
 import { BrowserProvider, JsonRpcProvider, HDNodeWallet, type Eip1193Provider } from 'ethers'
 import { TxFields } from './components/TxFields'
+import { ClearSign } from './components/ClearSign'
 import { Preflight } from './components/Preflight'
 import { WalletOptions } from './components/WalletOptions'
 import { GeneratedAccount } from './components/GeneratedAccount'
 import { Status } from './components/Status'
-import { fetchTx, reportStatus, reportWallets } from './api'
+import { fetchTx, fetchReview, reportStatus, reportWallets } from './api'
 import { explorerTxUrl, PUBLIC_RPCS, CHAIN_NAMES, isTestnet } from './chains'
 import { modal } from './walletConfig'
 import { useBrowserWallets, type Eip1193Provider as InjectedProvider } from './wallets'
-import type { PendingTransaction, StatusMessage } from './types'
+import type { PendingTransaction, StatusMessage, TxReview } from './types'
 import './App.css'
 
 // Extract tx ID from URL: /sign/<uuid>
@@ -21,6 +22,9 @@ type WalletMode = 'walletconnect' | 'injected' | 'generated' | null
 export default function App() {
   const [tx, setTx] = useState<PendingTransaction | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [review, setReview] = useState<TxReview | null>(null)
+  const [reviewLoading, setReviewLoading] = useState(true)
+  const [acknowledged, setAcknowledged] = useState(false)
 
   const [walletMode, setWalletMode] = useState<WalletMode>(null)
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
@@ -63,13 +67,19 @@ export default function App() {
     return () => eth.removeListener?.('accountsChanged', onAccountsChanged)
   }, [walletMode, injectedProvider])
 
+  // Load the clear-signing review (may take a few seconds: registry, Sourcify and RPC lookups)
+  useEffect(() => {
+    if (!TX_ID) return
+    fetchReview(TX_ID).then(setReview).finally(() => setReviewLoading(false))
+  }, [])
+
   // Load the pending transaction
   useEffect(() => {
     if (!TX_ID) { setLoadError('No transaction ID in URL'); return }
     fetchTx(TX_ID)
       .then(data => {
         setTx(data)
-        if (data.status === 'sent') {
+        if (data.status === 'sent' || data.status === 'confirmed' || data.status === 'reverted') {
           setDone(true)
           setStatus({
             type: 'success',
@@ -100,11 +110,12 @@ export default function App() {
     if (!tx || !walletAddress) return
     setSending(true)
     setStatus({ type: 'info', text: 'Waiting for wallet confirmation…' })
-    await reportStatus(TX_ID, 'signing')
+    const wallet = walletMode ?? undefined
+    await reportStatus(TX_ID, 'signing', undefined, undefined, wallet)
 
     try {
       const txHash = await sendTx()
-      await reportStatus(TX_ID, 'sent', txHash)
+      await reportStatus(TX_ID, 'sent', txHash, undefined, wallet)
       setDone(true)
       setStatus({
         type: 'success',
@@ -114,7 +125,7 @@ export default function App() {
       })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
-      await reportStatus(TX_ID, 'failed', undefined, msg)
+      await reportStatus(TX_ID, 'rejected', undefined, msg, wallet)
       setStatus({ type: 'error', text: msg })
       setSending(false)
     }
@@ -194,11 +205,13 @@ export default function App() {
     )
   }
 
+  const hasDanger = Boolean(review?.warnings.some(w => w.level === 'danger'))
+
   return (
     <div className="card">
       <div className="logo">🔏</div>
-      <h1>Sign &amp; Send Transaction</h1>
-      <p className="subtitle">{tx.description ?? 'Review and sign the transaction below'}</p>
+      <h1>Review &amp; Sign</h1>
+      <p className="subtitle">Check what this transaction does before you approve it in your wallet.</p>
 
       {tx.chainId !== undefined && !isTestnet(tx.chainId) && (
         <div className="mainnet-banner">
@@ -207,7 +220,12 @@ export default function App() {
         </div>
       )}
 
-      <TxFields tx={tx} />
+      <ClearSign review={review} loading={reviewLoading} chainId={tx.chainId} from={walletAddress} note={tx.description} />
+
+      <details className="tech-details" open={!review || review.source === 'none'}>
+        <summary>Technical details</summary>
+        <TxFields tx={tx} />
+      </details>
 
       {walletAddress && (
         <div className="wallet-chip">
@@ -244,11 +262,18 @@ export default function App() {
 
       {walletAddress && !done && <Preflight tx={tx} from={walletAddress} />}
 
+      {walletAddress && !done && hasDanger && (
+        <label className="ack">
+          <input type="checkbox" checked={acknowledged} onChange={e => setAcknowledged(e.target.checked)} />
+          I understand the warnings above and still want to sign.
+        </label>
+      )}
+
       {walletAddress && !done && (
         <button
           className="btn-primary"
           onClick={handleSend}
-          disabled={sending}
+          disabled={sending || (hasDanger && !acknowledged)}
         >
           {sending ? <><span className="spinner" /> Waiting for wallet…</> : 'Sign & Send'}
         </button>

@@ -6,8 +6,10 @@ import { fileURLToPath } from "url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpServer } from "./mcp.js";
 import { isActionPath, handleAction } from "./rest.js";
+import { getReview } from "./actions.js";
 import { openApiSpec, pluginManifest } from "./openapi.js";
-import { getTransaction, markSigning, markSent, markFailed, setWallets, type DetectedWallet } from "./store.js";
+import { trackEvent, analyticsEnabled } from "./analytics.js";
+import { getTransaction, markSigning, markSent, markRejected, setWallets, type DetectedWallet, type UpdateResult } from "./store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SIGN_DIST = path.resolve(__dirname, "..", "sign-dist");
@@ -245,22 +247,41 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  const apiReviewMatch = url.pathname.match(/^\/api\/tx\/([a-f0-9-]{36})\/review$/);
+  if (apiReviewMatch && req.method === "GET") {
+    if (!getTransaction(apiReviewMatch[1]!)) { json(res, 404, { error: "Not found" }); return; }
+    const review = await getReview(apiReviewMatch[1]!);
+    if (!review) { json(res, 503, { error: "Review unavailable" }); return; }
+    json(res, 200, review);
+    return;
+  }
+
   const apiCompleteMatch = url.pathname.match(/^\/api\/tx\/([a-f0-9-]{36})\/complete$/);
   if (apiCompleteMatch && req.method === "POST") {
     const id = apiCompleteMatch[1]!;
-    const body = (await parseBody(req)) as any;
-    if (body.status === "signing") {
-      markSigning(id);
-      json(res, 200, { ok: true });
-    } else if (body.status === "sent" && body.txHash) {
-      markSent(id, body.txHash);
-      json(res, 200, { ok: true });
-    } else if (body.status === "failed") {
-      markFailed(id, body.error ?? "unknown");
-      json(res, 200, { ok: true });
+    let body: any;
+    try { body = await parseBody(req); }
+    catch { json(res, 400, { error: "Invalid JSON body" }); return; }
+    // "failed" is what signing pages built before the rejected status report.
+    const status = body?.status === "failed" ? "rejected" : body?.status;
+    const wallet = typeof body?.wallet === "string" ? body.wallet.slice(0, 32) : undefined;
+    let result: UpdateResult;
+    if (status === "signing") {
+      result = markSigning(id, wallet);
+    } else if (status === "sent" && typeof body.txHash === "string") {
+      result = markSent(id, body.txHash, wallet);
+    } else if (status === "rejected") {
+      result = markRejected(id, typeof body.error === "string" ? body.error.slice(0, 2000) : "unknown", wallet);
     } else {
       json(res, 400, { error: "Invalid payload" });
+      return;
     }
+    if (!result.ok) {
+      json(res, result.reason === "not_found" ? 404 : 409, { error: result.reason, status: result.status });
+      return;
+    }
+    trackEvent({ category: "signing", action: status, name: wallet, value: getTransaction(id)!.chainId, visitorKey: id });
+    json(res, 200, { ok: true });
     return;
   }
 
@@ -278,6 +299,13 @@ const server = http.createServer(async (req, res) => {
         ...(typeof w.rdns === "string" ? { rdns: w.rdns.slice(0, 128) } : {}),
       }));
     if (!setWallets(apiWalletsMatch[1]!, detected)) { json(res, 404, { error: "Not found" }); return; }
+    trackEvent({
+      category: "signing",
+      action: "page_opened",
+      name: detected.length ? "wallet_detected" : "no_wallet",
+      value: detected.length,
+      visitorKey: apiWalletsMatch[1],
+    });
     json(res, 200, { ok: true });
     return;
   }
@@ -292,6 +320,7 @@ const server = http.createServer(async (req, res) => {
       clients: ["claude", "openai"],
       version: "1.0.0",
       auth: AUTH_TOKEN ? "bearer" : "none",
+      analytics: analyticsEnabled ? "matomo" : "off",
       endpoints: {
         mcp:       "POST|GET|DELETE /mcp",
         manifest:  "GET  /.well-known/ai-plugin.json",
@@ -299,6 +328,7 @@ const server = http.createServer(async (req, res) => {
         actions:   "POST /actions/{compile,encode-call,read-contract,transact,check-transaction}",
         signPage:  "GET  /sign/:id",
         txApi:     "GET  /api/tx/:id",
+        review:    "GET  /api/tx/:id/review",
         complete:  "POST /api/tx/:id/complete",
         wallets:   "POST /api/tx/:id/wallets",
       },
