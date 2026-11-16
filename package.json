@@ -9,7 +9,7 @@
     "start": "node --env-file-if-exists=.env dist/index.js",
     "dev:server": "npm run build:widget && tsx --env-file-if-exists=.env src/index.ts",
     "dev:sign": "npm run dev --prefix sign-app",
-    "package:claude": "rm -f remix-solidity-plugin.zip && cd plugins/claude && zip -r ../../remix-solidity-plugin.zip .claude-plugin .mcp.json skills",
+    "package:claude": "node --env-file-if-exists=.env scripts/package-claude.mjs",
     "build:widget": "esbuild widget/sign-widget.ts --bundle --format=esm --minify --target=es2022 --outfile=widget-dist/sign-widget.js"
   },
   "dependencies": {

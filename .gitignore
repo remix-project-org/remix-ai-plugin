@@ -7,3 +7,4 @@ sign-app/dist/
 *.local
 remix-solidity-plugin.zip
 widget-dist/
+$S/

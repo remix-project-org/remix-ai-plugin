@@ -7,14 +7,15 @@ export const SUPPORTED_NETWORKS: [AppKitNetwork, ...AppKitNetwork[]] = [
   mainnet, sepolia, polygon, base, baseSepolia, arbitrum, optimism,
 ]
 
+// Keyless public endpoints only: anything shipped to the browser is public.
 export const PUBLIC_RPCS: Record<number, string> = {
-  1:        'https://shared.eu-central-1.getblock.io/3b015fe911af48aca45cf963c56bc033',
-  11155111: 'https://shared.eu-central-1.getblock.io/7fbe62b139884d2c9c1616ca0de8b5b2',
-  137:      'https://shared.us-east-1.getblock.io/b731158b1223495db0636acfb88118fe',
-  8453:     'https://shared.us-east-1.getblock.io/068d7fb21aee4563b23464349e44d80e',
-  84532:    'https://shared.eu-central-1.getblock.io/8cb02ef20a9641548d5d1f6d73832dd4',
-  42161:    'https://shared.eu-central-1.getblock.io/d8fb0ccf25a646edaaf777d8abb10a62',
-  10:       'https://shared.eu-central-1.getblock.io/7ab36af4c9c346bbabab70e9c54d9c6c',
+  1:        'https://ethereum-rpc.publicnode.com',
+  11155111: 'https://ethereum-sepolia-rpc.publicnode.com',
+  137:      'https://polygon-bor-rpc.publicnode.com',
+  8453:     'https://mainnet.base.org',
+  84532:    'https://sepolia.base.org',
+  42161:    'https://arb1.arbitrum.io/rpc',
+  10:       'https://mainnet.optimism.io',
 }
 
 export const EXPLORERS: Record<number, string> = {

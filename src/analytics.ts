@@ -2,8 +2,9 @@
 // Matomo usage analytics (server-side, via the HTTP Tracking API).
 //
 // Disabled unless MATOMO_URL and MATOMO_SITE_ID are set. Only coarse usage
-// events are sent — tool names, client names, outcomes and chain IDs. Never
-// addresses, transaction hashes, calldata, ABIs or source code. Visitors are
+// events are sent — tool, prompt, resource and MCP method names, client names,
+// outcomes and chain IDs. Never addresses, transaction hashes, calldata, ABIs
+// or source code. Visitors are
 // identified by a hash of the MCP session / transaction id, never by user data.
 // ---------------------------------------------------------------------------
 

@@ -4,7 +4,7 @@ import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createMcpServer } from "./mcp.js";
+import { createMcpServer, trackMcpSession } from "./mcp.js";
 import { isActionPath, handleAction } from "./rest.js";
 import { getReview } from "./actions.js";
 import { openApiSpec, pluginManifest } from "./openapi.js";
@@ -27,10 +27,24 @@ const AUTH_TOKEN = process.env.PLUGIN_AUTH_TOKEN;
 // sessionId → transport (stateful streamable HTTP)
 const sessions = new Map<string, StreamableHTTPServerTransport>();
 
+// Generous enough for multi-file compile requests; anything larger is refused.
+const MAX_BODY_BYTES = 5 * 1024 * 1024;
+
 async function parseBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (chunk) => (body += chunk.toString()));
+    let size = 0;
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        // Drain the rest without buffering so the 413 response can still be sent.
+        req.removeAllListeners("data");
+        req.resume();
+        reject(Object.assign(new Error("Request body too large"), { status: 413 }));
+        return;
+      }
+      body += chunk.toString();
+    });
     req.on("end", () => {
       try { resolve(body ? JSON.parse(body) : {}); }
       catch { reject(new Error("Invalid JSON")); }
@@ -92,6 +106,11 @@ const server = http.createServer(async (req, res) => {
 
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
+    // A session this process does not hold: already closed, or from before a restart.
+    if (sessionId && !sessions.has(sessionId)) {
+      trackEvent({ category: "session", action: "not_found", visitorKey: sessionId });
+    }
+
     // DELETE — client tears down the session
     if (req.method === "DELETE") {
       if (sessionId) {
@@ -114,7 +133,9 @@ const server = http.createServer(async (req, res) => {
 
     // POST — all client→server JSON-RPC messages
     if (req.method === "POST") {
-      const body = await parseBody(req);
+      let body: unknown;
+      try { body = await parseBody(req); }
+      catch (err: any) { json(res, err.status ?? 400, { error: err.message }); return; }
 
       if (sessionId && sessions.has(sessionId)) {
         await sessions.get(sessionId)!.handleRequest(req, res, body);
@@ -129,7 +150,9 @@ const server = http.createServer(async (req, res) => {
         transport.onclose = () => {
           if (transport.sessionId) sessions.delete(transport.sessionId);
         };
-        await createMcpServer().connect(transport);
+        const mcp = createMcpServer();
+        await mcp.connect(transport);
+        trackMcpSession(mcp, transport);
         await transport.handleRequest(req, res, body);
         // sessionId is set after handleRequest processes the initialize message
         if (transport.sessionId) sessions.set(transport.sessionId, transport);
@@ -154,7 +177,7 @@ const server = http.createServer(async (req, res) => {
     let body: unknown;
     try { body = await parseBody(req); }
     catch { json(res, 400, { error: "Invalid JSON body" }); return; }
-    const result = await handleAction(url.pathname, body);
+    const result = await handleAction(url.pathname, body, req.headers["user-agent"]);
     json(res, result.status, result.body);
     return;
   }

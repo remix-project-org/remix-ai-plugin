@@ -100,18 +100,29 @@ export function isActionPath(pathname: string): boolean {
   return pathname in handlers;
 }
 
-export async function handleAction(pathname: string, body: unknown): Promise<RestResult> {
+/**
+ * REST callers send no MCP clientInfo, so the product name in their User-Agent
+ * stands in as the agent name, e.g. "ChatGPT-User" for a custom GPT.
+ */
+function agentName(userAgent: string | undefined): string {
+  const products = [...(userAgent ?? "").matchAll(/([A-Za-z][\w.-]*)\/\d/g)].map((m) => m[1]!);
+  const specific = products.find((p) => !/^(Mozilla|AppleWebKit|Chrome|Safari|Gecko)$/i.test(p));
+  return (specific || products[0] || userAgent?.trim() || "unknown").slice(0, 64);
+}
+
+export async function handleAction(pathname: string, body: unknown, userAgent?: string): Promise<RestResult> {
   const handler = handlers[pathname];
   if (!handler) return { status: 404, body: { error: "Unknown action" } };
   // "/actions/encode-call" → "encode_call", matching the MCP tool names in analytics
   const tool = pathname.slice("/actions/".length).replace(/-/g, "_");
   const chainId = Number.isInteger((body as any)?.chainId) ? (body as any).chainId : undefined;
+  const name = `rest:${agentName(userAgent)}`;
   try {
     const result = await handler(body);
-    trackEvent({ category: "tool", action: tool, name: "rest", value: chainId });
+    trackEvent({ category: "tool", action: tool, name, value: chainId });
     return { status: 200, body: result };
   } catch (err: any) {
-    trackEvent({ category: "tool_error", action: tool, name: "rest", value: chainId });
+    trackEvent({ category: "tool_error", action: tool, name, value: chainId });
     return { status: 400, body: { success: false, error: err?.message ?? String(err) } };
   }
 }
