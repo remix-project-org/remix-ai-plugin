@@ -2,7 +2,7 @@
   "name": "remix-solidity",
   "displayName": "Remix Solidity",
   "version": "1.0.0",
-  "description": "Compile, deploy and interact with Solidity smart contracts directly from Claude. Transactions are signed in your own browser wallet via a signing page.",
+  "description": "Compile Solidity smart contracts, read deployed contracts and simulate deployments and calls directly from Claude. Nothing is signed or sent.",
   "author": "Remix Labs",
   "license": "MIT"
 }
