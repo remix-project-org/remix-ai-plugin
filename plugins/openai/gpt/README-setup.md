@@ -9,8 +9,11 @@ Settings → Connectors → Create. Point it at:
     <BASE_URL>/mcp
 
 Transport: Streamable HTTP. Auth: none, or Bearer if `PLUGIN_AUTH_TOKEN` is set.
-Tools exposed: compile_solidity, encode_call, read_contract, transact, check_transaction.
-Prompts exposed: deploy-contract, call-contract.
+Tools exposed: compile_solidity, encode_call, read_contract, simulate.
+Prompts exposed: simulate-deployment, simulate-call.
+
+This describes the simulate-only server (`ENABLE_TRANSACT=false`): nothing can be
+signed or sent from the chat.
 
 ## B. Custom GPT Action
 
@@ -24,5 +27,4 @@ API Key → Bearer when `PLUGIN_AUTH_TOKEN` is set.
 
 The plugin manifest is served at `<BASE_URL>/.well-known/ai-plugin.json`.
 
-`BASE_URL` must be publicly reachable — ChatGPT calls it directly, and it is
-also the origin of the sign URLs the user opens in their wallet.
+`BASE_URL` must be publicly reachable — ChatGPT calls it directly.
