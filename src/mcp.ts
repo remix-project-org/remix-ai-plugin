@@ -11,9 +11,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z, type ZodRawShape } from "zod";
 import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { compile, transact, checkTransaction, encodeCall, readContract, type CompileArgs, type TransactArgs } from "./actions.js";
+import { compile, transact, checkTransaction, encodeCall, readContract, simulate, type CompileArgs, type TransactArgs, type SimulateArgs } from "./actions.js";
 import type { EncodeArgs, ReadArgs } from "./tools/abi.js";
 import { trackEvent, type TrackEvent } from "./analytics.js";
+import { TRANSACT_ENABLED } from "./features.js";
 import { SIGN_WIDGET_URI, SIGN_WIDGET_MIME, SIGN_WIDGET_TOOL_META, signWidgetHtml } from "./widget.js";
 
 const sourcesSchema = z
@@ -34,7 +35,7 @@ const argsSchema = z
 // SDK's zod v3/v4 union — exhausts tsc's memory.
 const shape = (s: ZodRawShape) => s as unknown as ZodRawShapeCompat;
 
-const transactInputSchema = shape({
+const transactFields: ZodRawShape = {
     to: z.string().optional().describe("Contract address for a function call. Omit for a deployment."),
     abi: abiSchema
       .optional()
@@ -71,7 +72,20 @@ const transactInputSchema = shape({
       .string()
       .optional()
       .describe('Human-readable description shown on the signing page, e.g. "Deploy MyToken.sol".'),
-  });
+  };
+
+const transactInputSchema = shape(transactFields);
+
+// simulate takes the same call as transact, minus the signing-page fields, with the chain required.
+const { gasLimit: _gasLimit, description: _description, chainId: _chainId, ...callFields } = transactFields;
+const simulateInputSchema = shape({
+  ...callFields,
+  chainId: z.number().int().describe("EVM chain ID (e.g. 1 = Ethereum mainnet, 11155111 = Sepolia, 8453 = Base)."),
+  from: z
+    .string()
+    .optional()
+    .describe("Caller address (msg.sender) to simulate as. Without it the zero address is used, so balance and permission checks may fail."),
+});
 
 function text(payload: unknown, isError = false) {
   const structured = payload && typeof payload === "object" && !Array.isArray(payload);
@@ -171,35 +185,8 @@ export function trackMcpSession(server: McpServer, transport: Transport): void {
   server.server.onclose = () => report({ category: "session", action: "end" });
 }
 
-export function createMcpServer(): McpServer {
-  const server = new McpServer({ name: "remix-solidity", version: "1.0.0" });
-
-  server.registerTool(
-    "compile_solidity",
-    {
-      title: "Compile Solidity",
-      description:
-        "Compile one or more Solidity source files using the Remix compiler. Returns ABI, bytecode, and any errors or warnings.",
-      inputSchema: shape({
-        sources: sourcesSchema,
-        version: z
-          .string()
-          .optional()
-          .describe('Solidity compiler version, e.g. "v0.8.28+commit.7893614a". Defaults to 0.8.28.'),
-        settings: z
-          .record(z.unknown())
-          .optional()
-          .describe("solc compiler settings (optimizer, outputSelection, …)"),
-      }),
-      annotations: { readOnlyHint: true, openWorldHint: true },
-      _meta: {
-        "openai/toolInvocation/invoking": "Compiling the contract…",
-        "openai/toolInvocation/invoked": "Compiled the contract.",
-      },
-    },
-    async (args) => guard(() => compile(args as CompileArgs))
-  );
-
+/** Tools and the inline card that exist only when transactions can be sent from the chat. */
+function registerSigningTools(server: McpServer) {
   server.registerTool(
     "transact",
     {
@@ -215,7 +202,8 @@ export function createMcpServer(): McpServer {
         "For view/pure functions use read_contract instead — no signature needed.",
       ].join(" "),
       inputSchema: transactInputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+      // Broadcasting a transaction is irreversible once the user signs it.
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       _meta: {
         ...SIGN_WIDGET_TOOL_META,
         "openai/toolInvocation/invoking": "Preparing the transaction…",
@@ -253,7 +241,7 @@ export function createMcpServer(): McpServer {
           .optional()
           .describe("Long-poll up to this many seconds for a status change before returning (default 0 = return immediately). 20 is a good value."),
       }),
-      annotations: { readOnlyHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: {
         // The in-chat card calls this tool itself to track the transaction; ChatGPT requires the opt-in.
         "openai/widgetAccessible": true,
@@ -265,62 +253,6 @@ export function createMcpServer(): McpServer {
       const { transactionId, waitSeconds } = args as { transactionId: string; waitSeconds?: number };
       return guard(() => checkTransaction(transactionId, waitSeconds));
     }
-  );
-
-  server.registerTool(
-    "encode_call",
-    {
-      title: "Encode contract call or deployment",
-      description: [
-        "ABI-encode transaction data without sending anything (e.g. to show or inspect calldata).",
-        "To actually deploy or call a contract, use transact directly with abi + functionName/bytecode + args — it encodes for you.",
-        "Function call: pass abi, functionName and args → returns calldata for transact (with 'to' = contract address).",
-        "Deployment: pass abi, bytecode (evm.bytecode.object from compile_solidity) and the constructor args → returns deployment data for transact (no 'to').",
-      ].join(" "),
-      inputSchema: shape({
-        abi: abiSchema,
-        functionName: z
-          .string()
-          .optional()
-          .describe('Function name or full signature (e.g. "transfer" or "transfer(address,uint256)"). Omit when encoding a deployment.'),
-        args: argsSchema,
-        bytecode: z
-          .string()
-          .optional()
-          .describe("Contract creation bytecode. When set, encodes a deployment with `args` as the constructor arguments."),
-      }),
-      annotations: { readOnlyHint: true, openWorldHint: false },
-      _meta: {
-        "openai/toolInvocation/invoking": "Encoding the call…",
-        "openai/toolInvocation/invoked": "Encoded the call.",
-      },
-    },
-    async (args) => guard(() => encodeCall(args as EncodeArgs))
-  );
-
-  server.registerTool(
-    "read_contract",
-    {
-      title: "Read contract state",
-      description: [
-        "Call a view/pure function on a deployed contract (eth_call) and return the decoded result — no wallet or transaction needed.",
-        "Use this for balances, owners, totals, configuration, etc. Calling a state-changing function only simulates it.",
-      ].join(" "),
-      inputSchema: shape({
-        address: z.string().describe("Deployed contract address"),
-        chainId: z.number().int().describe("EVM chain ID (e.g. 11155111 = Sepolia, 1 = Ethereum mainnet, 8453 = Base)."),
-        abi: abiSchema,
-        functionName: z.string().describe('Function name or full signature, e.g. "balanceOf"'),
-        args: argsSchema,
-        from: z.string().optional().describe("Optional caller address (msg.sender) for the call."),
-      }),
-      annotations: { readOnlyHint: true, openWorldHint: true },
-      _meta: {
-        "openai/toolInvocation/invoking": "Reading the contract…",
-        "openai/toolInvocation/invoked": "Read the contract.",
-      },
-    },
-    async (args) => guard(() => readContract(args as ReadArgs))
   );
 
   // -------------------------------------------------------------------------
@@ -339,12 +271,10 @@ export function createMcpServer(): McpServer {
       contents: [{ uri: SIGN_WIDGET_URI, mimeType: SIGN_WIDGET_MIME, text: signWidgetHtml() }],
     })
   );
+}
 
-  // -------------------------------------------------------------------------
-  // Prompts — mirror the skills in plugins/claude/skills. Claude exposes them
-  // as slash commands, ChatGPT in the connector's prompt picker.
-  // -------------------------------------------------------------------------
-
+/** Prompts that walk through compile → sign; mirror the skills in plugins/claude/skills. */
+function registerSigningPrompts(server: McpServer) {
   server.registerPrompt(
     "deploy-contract",
     {
@@ -433,6 +363,223 @@ export function createMcpServer(): McpServer {
       };
     }
   );
+}
+
+/** Prompts for the simulate-only build: the same flows as above, ending in a dry run instead of a signature. */
+function registerSimulationPrompts(server: McpServer) {
+  server.registerPrompt(
+    "simulate-deployment",
+    {
+      title: "Simulate Deployment",
+      description: "Compile a Solidity contract and dry-run its deployment — nothing is signed or sent.",
+      argsSchema: shape({
+        source: z.string().describe("Solidity source code of the contract to simulate deploying"),
+        filename: z.string().optional().describe('Filename, e.g. "MyToken.sol". Defaults to "Contract.sol".'),
+        chain_id: z.string().optional().describe('EVM chain ID as a string (e.g. "11155111" for Sepolia). Defaults to Sepolia.'),
+      }),
+    },
+    (args) => {
+      const { source, filename, chain_id } = args as { source: string; filename?: string; chain_id?: string };
+      return {
+        messages: [
+          {
+            role: "user" as const,
+            content: {
+              type: "text" as const,
+              text: [
+                `Please simulate deploying the following Solidity contract. Nothing will be sent to the chain.`,
+                `Filename: ${filename ?? "Contract.sol"}`,
+                `Chain ID: ${chain_id ?? "11155111"} (Sepolia if not specified)`,
+                ``,
+                `Steps:`,
+                `1. Call compile_solidity with the source below.`,
+                `2. If compilation succeeds, call simulate with the contract's abi, its bytecode (evm.bytecode.object) and any constructor args (ask me for values if needed). Omit 'to' — it's a deployment.`,
+                `3. Report whether the deployment would succeed, the gas estimate and any revert reason or review warning.`,
+                ``,
+                `Source:`,
+                "```solidity",
+                source,
+                "```",
+              ].join("\n"),
+            },
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerPrompt(
+    "simulate-call",
+    {
+      title: "Simulate Contract Call",
+      description: "Dry-run a function call on a deployed contract and show what it would do — nothing is signed or sent.",
+      argsSchema: shape({
+        address: z.string().describe("Address of the deployed contract"),
+        abi: z.string().describe("Contract ABI (JSON) or the single function signature to call"),
+        function_call: z.string().describe('Function and arguments, e.g. "transfer(0xabc…, 1000)"'),
+        chain_id: z.string().optional().describe('EVM chain ID as a string. Defaults to Sepolia ("11155111").'),
+        from: z.string().optional().describe("Address to simulate the call from (msg.sender)."),
+        value: z.string().optional().describe("ETH to send in wei, if the function is payable. Defaults to 0."),
+      }),
+    },
+    (args) => {
+      const { address, abi, function_call, chain_id, from, value } = args as {
+        address: string; abi: string; function_call: string; chain_id?: string; from?: string; value?: string;
+      };
+      return {
+        messages: [
+          {
+            role: "user" as const,
+            content: {
+              type: "text" as const,
+              text: [
+                `Simulate a function call on a deployed contract. Nothing will be sent to the chain.`,
+                `Contract: ${address}`,
+                `Chain ID: ${chain_id ?? "11155111"} (Sepolia if not specified)`,
+                `Call: ${function_call}`,
+                `From: ${from ?? "not specified (zero address)"}`,
+                `Value: ${value ?? "0"} wei`,
+                ``,
+                `Steps:`,
+                `1. If the function is view/pure, call read_contract and report the result.`,
+                `2. Otherwise call simulate with to=${address}, the ABI, the function name, the arguments, the chainId${from ? `, from=${from}` : ""} and the value.`,
+                `3. Report whether the call would succeed, the decoded return value, the gas estimate and any revert reason or review warning.`,
+                ``,
+                `ABI:`,
+                "```json",
+                abi,
+                "```",
+              ].join("\n"),
+            },
+          },
+        ],
+      };
+    }
+  );
+}
+
+export function createMcpServer(): McpServer {
+  const server = new McpServer({ name: "remix-solidity", version: "1.0.0" });
+
+  server.registerTool(
+    "compile_solidity",
+    {
+      title: "Compile Solidity",
+      description:
+        "Compile one or more Solidity source files using the Remix compiler. Returns ABI, bytecode, and any errors or warnings.",
+      inputSchema: shape({
+        sources: sourcesSchema,
+        version: z
+          .string()
+          .optional()
+          .describe('Solidity compiler version, e.g. "v0.8.28+commit.7893614a". Defaults to 0.8.28.'),
+        settings: z
+          .record(z.unknown())
+          .optional()
+          .describe("solc compiler settings (optimizer, outputSelection, …)"),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: {
+        "openai/toolInvocation/invoking": "Compiling the contract…",
+        "openai/toolInvocation/invoked": "Compiled the contract.",
+      },
+    },
+    async (args) => guard(() => compile(args as CompileArgs))
+  );
+
+  server.registerTool(
+    "encode_call",
+    {
+      title: "Encode contract call or deployment",
+      description: [
+        "ABI-encode transaction data without sending anything (e.g. to show or inspect calldata).",
+        ...(TRANSACT_ENABLED
+          ? [
+              "To actually deploy or call a contract, use transact directly with abi + functionName/bytecode + args — it encodes for you.",
+              "Function call: pass abi, functionName and args → returns calldata for transact (with 'to' = contract address).",
+              "Deployment: pass abi, bytecode (evm.bytecode.object from compile_solidity) and the constructor args → returns deployment data for transact (no 'to').",
+            ]
+          : [
+              "To see what a call or deployment would do on-chain, pass the same inputs to simulate — it encodes for you.",
+              "Function call: pass abi, functionName and args → returns calldata.",
+              "Deployment: pass abi, bytecode (evm.bytecode.object from compile_solidity) and the constructor args → returns deployment data.",
+            ]),
+      ].join(" "),
+      inputSchema: shape({
+        abi: abiSchema,
+        functionName: z
+          .string()
+          .optional()
+          .describe('Function name or full signature (e.g. "transfer" or "transfer(address,uint256)"). Omit when encoding a deployment.'),
+        args: argsSchema,
+        bytecode: z
+          .string()
+          .optional()
+          .describe("Contract creation bytecode. When set, encodes a deployment with `args` as the constructor arguments."),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: {
+        "openai/toolInvocation/invoking": "Encoding the call…",
+        "openai/toolInvocation/invoked": "Encoded the call.",
+      },
+    },
+    async (args) => guard(() => encodeCall(args as EncodeArgs))
+  );
+
+  server.registerTool(
+    "read_contract",
+    {
+      title: "Read contract state",
+      description: [
+        "Call a view/pure function on a deployed contract (eth_call) and return the decoded result — no wallet or transaction needed.",
+        "Use this for balances, owners, totals, configuration, etc. Calling a state-changing function only simulates it.",
+      ].join(" "),
+      inputSchema: shape({
+        address: z.string().describe("Deployed contract address"),
+        chainId: z.number().int().describe("EVM chain ID (e.g. 11155111 = Sepolia, 1 = Ethereum mainnet, 8453 = Base)."),
+        abi: abiSchema,
+        functionName: z.string().describe('Function name or full signature, e.g. "balanceOf"'),
+        args: argsSchema,
+        from: z.string().optional().describe("Optional caller address (msg.sender) for the call."),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: {
+        "openai/toolInvocation/invoking": "Reading the contract…",
+        "openai/toolInvocation/invoked": "Read the contract.",
+      },
+    },
+    async (args) => guard(() => readContract(args as ReadArgs))
+  );
+
+  server.registerTool(
+    "simulate",
+    {
+      title: "Simulate transaction",
+      description: [
+        "Dry-run a contract deployment or function call on the chain's current state and report what would happen — nothing is signed, sent or stored.",
+        "Returns whether it would succeed, the gas estimate, the decoded return value (for calls) or the revert reason, and a clear-signing review: a plain-language intent, where it was verified and risk warnings.",
+        "Deploy: pass abi, bytecode (evm.bytecode.object from compile_solidity) and constructor args; omit 'to'.",
+        "Call: pass to (contract address), abi, functionName and args (plus value for payable functions).",
+        "Pass 'from' to simulate a specific caller; otherwise the zero address is used.",
+        "The server encodes everything — never hand-encode hex. Pre-encoded 'data' is also accepted.",
+        "The result is a prediction against the latest block, not a guarantee of what a real transaction would do.",
+      ].join(" "),
+      inputSchema: simulateInputSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: {
+        "openai/toolInvocation/invoking": "Simulating the transaction…",
+        "openai/toolInvocation/invoked": "Simulated the transaction.",
+      },
+    },
+    async (args) => guard(() => simulate(args as SimulateArgs))
+  );
+
+  if (TRANSACT_ENABLED) {
+    registerSigningTools(server);
+    registerSigningPrompts(server);
+  } else {
+    registerSimulationPrompts(server);
+  }
 
   return server;
 }

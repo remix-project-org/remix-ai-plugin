@@ -4,7 +4,8 @@
 // ---------------------------------------------------------------------------
 
 import { trackEvent } from "./analytics.js";
-import { compile, transact, checkTransaction, encodeCall, readContract, type Sources } from "./actions.js";
+import { compile, transact, checkTransaction, encodeCall, readContract, simulate, type Sources } from "./actions.js";
+import { TRANSACT_ENABLED } from "./features.js";
 
 export interface RestResult {
   status: number;
@@ -43,7 +44,7 @@ function normalizeSources(raw: unknown): Sources {
   throw new Error("sources is required");
 }
 
-const handlers: Record<string, Handler> = {
+const sharedHandlers: Record<string, Handler> = {
   "/actions/compile": (body) =>
     compile({
       sources: normalizeSources(body?.sources),
@@ -51,19 +52,19 @@ const handlers: Record<string, Handler> = {
       settings: body?.settings,
     }),
 
-  "/actions/transact": (body) => {
+  "/actions/simulate": (body) => {
     if (body?.data !== undefined && typeof body.data !== "string") throw new Error("data must be a hex string");
     if (body?.args !== undefined && !Array.isArray(body.args)) throw new Error("args must be an array");
-    return transact({
-      data: body?.data,
-      functionName: body?.functionName,
-      args: body?.args,
-      bytecode: body?.bytecode,
-      to: body?.to,
+    if (!Number.isInteger(body?.chainId)) throw new Error("chainId is required and must be an integer");
+    return simulate({
+      data: body.data,
+      functionName: body.functionName,
+      args: body.args,
+      bytecode: body.bytecode,
+      to: body.to,
+      from: body.from,
       value: body.value,
       chainId: body.chainId,
-      gasLimit: body.gasLimit,
-      description: body.description,
       abi: body.abi,
     });
   },
@@ -88,13 +89,34 @@ const handlers: Record<string, Handler> = {
       from: body.from,
     });
   },
+};
+
+/** Handlers that exist only when transactions can be sent from the chat. */
+const signingHandlers: Record<string, Handler> = {
+  "/actions/transact": (body) => {
+    if (body?.data !== undefined && typeof body.data !== "string") throw new Error("data must be a hex string");
+    if (body?.args !== undefined && !Array.isArray(body.args)) throw new Error("args must be an array");
+    return transact({
+      data: body?.data,
+      functionName: body?.functionName,
+      args: body?.args,
+      bytecode: body?.bytecode,
+      to: body?.to,
+      value: body.value,
+      chainId: body.chainId,
+      gasLimit: body.gasLimit,
+      description: body.description,
+      abi: body.abi,
+    });
+  },
 
   "/actions/check-transaction": (body) => {
     if (typeof body?.transactionId !== "string") throw new Error("transactionId is required");
     return checkTransaction(body.transactionId, Number(body.waitSeconds) || 0);
   },
-
 };
+
+const handlers: Record<string, Handler> = { ...sharedHandlers, ...(TRANSACT_ENABLED ? signingHandlers : {}) };
 
 export function isActionPath(pathname: string): boolean {
   return pathname in handlers;

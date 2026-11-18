@@ -6,7 +6,8 @@
 //   • rest.ts — REST endpoints behind the OpenAPI spec used by custom GPT Actions
 // ---------------------------------------------------------------------------
 
-import { JsonRpcProvider } from "ethers";
+import { JsonRpcProvider, getAddress, type TransactionRequest } from "ethers";
+import { TRANSACT_ENABLED } from "./features.js";
 import { compileSolidity } from "./tools/compile.js";
 import { encode, decodeTransaction, parseAbi, toJsonSafe, readContract as readContractCall, type DecodedCall, type EncodeArgs, type ReadArgs } from "./tools/abi.js";
 import { createTransaction, getTransaction, setReceipt, setReview, TERMINAL_STATUSES, type PendingTransaction } from "./store.js";
@@ -56,9 +57,13 @@ export function encodeCall(args: EncodeArgs) {
   }
   return {
     ...result,
-    next: result.kind === "deploy"
-      ? "Pass `data` to transact with no `to` field to deploy."
-      : "Pass `data` to transact with `to` set to the contract address" + (result.payable ? " (and `value` if sending ETH)." : "."),
+    ...(TRANSACT_ENABLED
+      ? {
+          next: result.kind === "deploy"
+            ? "Pass `data` to transact with no `to` field to deploy."
+            : "Pass `data` to transact with `to` set to the contract address" + (result.payable ? " (and `value` if sending ETH)." : "."),
+        }
+      : {}),
   };
 }
 
@@ -234,4 +239,123 @@ export async function checkTransaction(transactionId: string, waitSeconds = 0) {
   }
 
   return payload;
+}
+
+// --- simulate --------------------------------------------------------------
+
+export interface SimulateArgs extends Omit<TransactArgs, "gasLimit" | "description" | "chainId"> {
+  chainId: number;
+  /** Caller (msg.sender). Defaults to the zero address. */
+  from?: string;
+}
+
+const SIMULATE_TIMEOUT_MS = 20_000;
+
+async function withTimeout<T>(promise: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("The RPC node did not answer in time.")), SIMULATE_TIMEOUT_MS); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Why an eth_call reverted: the revert string, or a custom error decoded with the ABI when one was given. */
+function revertDetails(err: any, abi: unknown) {
+  const data: string | undefined = typeof err?.data === "string" && err.data !== "0x" ? err.data : undefined;
+  let customError: { name: string; signature: string; args: unknown } | undefined;
+  if (data && abi !== undefined) {
+    try {
+      const parsed = parseAbi(abi).parseError(data);
+      if (parsed) customError = { name: parsed.name, signature: parsed.signature, args: toJsonSafe(Array.from(parsed.args)) };
+    } catch { /* not an error of this ABI */ }
+  }
+  return {
+    message: err?.shortMessage ?? err?.message ?? "execution reverted",
+    ...(err?.reason ? { reason: err.reason } : {}),
+    ...(customError ? { customError } : {}),
+    ...(data ? { data } : {}),
+  };
+}
+
+/** Decodes what a successful call returned, when the ABI knows the function. */
+function decodeReturn(abi: unknown, functionName: string | undefined, data: string, returnData: string) {
+  try {
+    const iface = parseAbi(abi);
+    const fragment = iface.getFunction(functionName ?? data.slice(0, 10));
+    if (!fragment || fragment.outputs.length === 0) return undefined;
+    const values = Array.from(iface.decodeFunctionResult(fragment, returnData) as ArrayLike<unknown>);
+    return {
+      signature: fragment.format("full"),
+      outputs: fragment.outputs.map((o, i) => ({ name: o.name, type: o.type, value: toJsonSafe(values[i]) })),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Dry-runs a deployment or call with eth_call + eth_estimateGas. Nothing is signed, sent or stored. */
+export async function simulate(input: SimulateArgs) {
+  const { chainId, to, from, abi, functionName } = input;
+  const rpcUrl = PUBLIC_RPCS[chainId];
+  if (!rpcUrl) throw new Error(`No RPC configured for chain ${chainId}. Supported: ${Object.keys(PUBLIC_RPCS).join(", ")}`);
+
+  const data = resolveData(input);
+  let value: bigint | undefined;
+  try { value = input.value !== undefined ? BigInt(input.value) : undefined; }
+  catch { throw new Error('value must be a hex string (e.g. "0x0") or a decimal string in wei.'); }
+
+  const decoded =
+    recentEncodings.get(data.toLowerCase()) ??
+    (abi !== undefined ? decodeTransaction(abi, data, !to) : undefined);
+
+  const request: TransactionRequest = {
+    ...(to ? { to: getAddress(to) } : {}),
+    ...(from ? { from: getAddress(from) } : {}),
+    data,
+    ...(value !== undefined ? { value } : {}),
+  };
+  const provider = new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true });
+
+  const run = async () => {
+    try {
+      const returnData = await withTimeout(provider.call(request));
+      const gas = await withTimeout(provider.estimateGas(request)).catch(() => undefined);
+      return { ok: true as const, returnData, gasEstimate: gas?.toString() };
+    } catch (err: any) {
+      if (err?.code !== "CALL_EXCEPTION") throw err;
+      return { ok: false as const, revert: revertDetails(err, abi) };
+    }
+  };
+  const [outcome, review] = await Promise.all([
+    run(),
+    buildReview({ chainId, to, data, value: input.value, abi, decodedArgs: decoded?.args }).catch(() => undefined),
+  ]);
+
+  const returns = outcome.ok && to && abi !== undefined ? decodeReturn(abi, functionName, data, outcome.returnData) : undefined;
+  return {
+    simulated: true,
+    success: outcome.ok,
+    chainId,
+    ...(to ? { to } : {}),
+    ...(from ? { from } : {}),
+    ...(value !== undefined ? { value: value.toString() } : {}),
+    ...(decoded ? { decoded } : {}),
+    ...(outcome.ok
+      ? {
+          ...(outcome.gasEstimate ? { gasEstimate: outcome.gasEstimate } : {}),
+          ...(returns ? { returns } : {}),
+          ...(!to ? { deployedCodeBytes: Math.max(0, (outcome.returnData.length - 2) / 2) } : {}),
+        }
+      : { revert: outcome.revert }),
+    ...(review ? { review: reviewSummary(review) } : {}),
+    note: [
+      "Simulation only: nothing was signed or sent, and no state changed on-chain.",
+      "It ran against the latest block, so a real transaction can still behave differently.",
+      ...(from ? [] : ["No 'from' was given, so msg.sender was the zero address — pass 'from' to simulate a specific caller."]),
+    ].join(" "),
+  };
 }

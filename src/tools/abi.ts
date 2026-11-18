@@ -6,6 +6,7 @@
 
 import { Contract, Interface, JsonRpcProvider, getAddress, type InterfaceAbi } from "ethers";
 import { PUBLIC_RPCS } from "../rpcs.js";
+import { TRANSACT_ENABLED } from "../features.js";
 
 /**
  * Accepts a JSON ABI (array or string), a compile_solidity contract output
@@ -161,6 +162,6 @@ export async function readContract({ address, chainId, abi, functionName, args =
     outputs: outputs.map((o, i) => ({ name: o.name, type: o.type, value: toJsonSafe(values[i]) })),
     ...(fragment.stateMutability === "view" || fragment.stateMutability === "pure"
       ? {}
-      : { note: "This function is not view/pure — the result is a simulation and nothing was written on-chain. Use transact to execute it." }),
+      : { note: `This function is not view/pure — the result is a simulation and nothing was written on-chain.${TRANSACT_ENABLED ? " Use transact to execute it." : ""}` }),
   };
 }

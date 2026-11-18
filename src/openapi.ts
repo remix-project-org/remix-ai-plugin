@@ -4,6 +4,8 @@
 // → "Import from URL" to get the same capabilities as the MCP connector.
 // ---------------------------------------------------------------------------
 
+import { TRANSACT_ENABLED } from "./features.js";
+
 const sourcesSchema = {
   description:
     "Solidity files to process. Either a list of { filename, content } objects or a map of filename → { content }.",
@@ -50,7 +52,9 @@ export function openApiSpec(baseUrl: string, requiresAuth: boolean) {
     info: {
       title: "Remix Solidity",
       description:
-        "Compile, deploy and interact with Solidity smart contracts. Deployments and contract calls are signed by the user in a browser wallet — this API never holds private keys.",
+        TRANSACT_ENABLED
+          ? "Compile, deploy and interact with Solidity smart contracts. Deployments and contract calls are signed by the user in a browser wallet — this API never holds private keys."
+          : "Compile Solidity smart contracts, read deployed contracts and simulate deployments and calls. Nothing is signed or sent — this API never holds private keys.",
       version: "1.0.0",
     },
     servers: [{ url: baseUrl }],
@@ -99,60 +103,90 @@ export function openApiSpec(baseUrl: string, requiresAuth: boolean) {
         },
       },
 
-      "/actions/transact": {
-        post: {
-          operationId: "prepareTransaction",
-          summary: "Prepare a transaction for the user to sign",
-          description:
-            "Stores a transaction and returns a signUrl. Show the signUrl to the user as a clickable link — they open it and sign with MetaMask or WalletConnect. Build 'data' with encodeCall (never hand-encode hex). Omit 'to' to deploy a contract. The response includes a clear-signing review (intent, source, warnings); tell the user about any 'danger' warning before they sign.",
-          ...security,
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    data: { type: "string", description: "Hex calldata, or contract bytecode for a deployment." },
-                    to: { type: "string", description: "Recipient address. Omit for contract deployment." },
-                    value: { type: "string", description: 'ETH to send, hex (e.g. "0x0") or decimal wei.' },
-                    chainId: { type: "integer", description: "EVM chain ID. 11155111 = Sepolia, 1 = mainnet, 8453 = Base." },
-                    gasLimit: { type: "string", description: 'Hex gas limit (e.g. "0x186A0"). Omit to let the wallet estimate.' },
-                    description: { type: "string", description: "Label shown on the signing page." },
-                    abi: { ...abiSchema, description: "Optional ABI so the signing page can show the decoded call. Not needed if data came from encodeCall." },
+      ...(TRANSACT_ENABLED
+        ? {
+          "/actions/transact": {
+            post: {
+              operationId: "prepareTransaction",
+              summary: "Prepare a transaction for the user to sign",
+              description:
+                "Stores a transaction and returns a signUrl. Show the signUrl to the user as a clickable link — they open it and sign with MetaMask or WalletConnect. Build 'data' with encodeCall (never hand-encode hex). Omit 'to' to deploy a contract. The response includes a clear-signing review (intent, source, warnings); tell the user about any 'danger' warning before they sign.",
+              ...security,
+              requestBody: {
+                required: true,
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: {
+                        data: { type: "string", description: "Hex calldata, or contract bytecode for a deployment." },
+                        to: { type: "string", description: "Recipient address. Omit for contract deployment." },
+                        value: { type: "string", description: 'ETH to send, hex (e.g. "0x0") or decimal wei.' },
+                        chainId: { type: "integer", description: "EVM chain ID. 11155111 = Sepolia, 1 = mainnet, 8453 = Base." },
+                        gasLimit: { type: "string", description: 'Hex gas limit (e.g. "0x186A0"). Omit to let the wallet estimate.' },
+                        description: { type: "string", description: "Label shown on the signing page." },
+                        abi: { ...abiSchema, description: "Optional ABI so the signing page can show the decoded call. Not needed if data came from encodeCall." },
+                      },
+                      required: ["data"],
+                    },
                   },
-                  required: ["data"],
                 },
               },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Pending transaction with a sign URL",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      transactionId: { type: "string" },
-                      signUrl: { type: "string" },
-                      status: { type: "string" },
-                      instructions: { type: "string" },
+              responses: {
+                "200": {
+                  description: "Pending transaction with a sign URL",
+                  content: {
+                    "application/json": {
+                      schema: {
+                        type: "object",
+                        properties: {
+                          transactionId: { type: "string" },
+                          signUrl: { type: "string" },
+                          status: { type: "string" },
+                          instructions: { type: "string" },
+                        },
+                      },
                     },
                   },
                 },
               },
             },
           },
-        },
-      },
 
-      "/actions/check-transaction": {
+          "/actions/check-transaction": {
+            post: {
+              operationId: "checkTransaction",
+              summary: "Poll the status of a pending transaction",
+              description:
+                "Status is 'pending' (sign page not opened), 'signing' (wallet dialog open), 'sent' (broadcast — txHash available), 'confirmed' (mined successfully), 'reverted' (mined but reverted) or 'rejected' (latest signing attempt failed — the user can retry on the same page). Poll every few seconds until 'confirmed', 'reverted' or 'rejected'. signingPageOpened / walletsDetected report whether the user opened the page and which browser wallets it found; an empty walletsDetected list means no wallet extension is installed.",
+              ...security,
+              requestBody: {
+                required: true,
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: {
+                        transactionId: { type: "string", description: "Id returned by prepareTransaction." },
+                        waitSeconds: { type: "integer", minimum: 0, maximum: 25, description: "Long-poll up to this many seconds for a status change before returning. 20 is a good value." },
+                      },
+                      required: ["transactionId"],
+                    },
+                  },
+                },
+              },
+              responses: { "200": { description: "Transaction state", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } },
+            },
+          },
+          }
+        : {}),
+
+      "/actions/simulate": {
         post: {
-          operationId: "checkTransaction",
-          summary: "Poll the status of a pending transaction",
+          operationId: "simulateTransaction",
+          summary: "Dry-run a deployment or contract call",
           description:
-            "Status is 'pending' (sign page not opened), 'signing' (wallet dialog open), 'sent' (broadcast — txHash available), 'confirmed' (mined successfully), 'reverted' (mined but reverted) or 'rejected' (latest signing attempt failed — the user can retry on the same page). Poll every few seconds until 'confirmed', 'reverted' or 'rejected'. signingPageOpened / walletsDetected report whether the user opened the page and which browser wallets it found; an empty walletsDetected list means no wallet extension is installed.",
+            "Runs an eth_call and gas estimate for a deployment or function call and reports whether it would succeed, the decoded return value or revert reason, and a clear-signing review (intent, source, warnings). Nothing is signed or sent. Pass abi + functionName + args + to for a call, or abi + bytecode + args (no 'to') for a deployment; 'data' is accepted pre-encoded.",
           ...security,
           requestBody: {
             required: true,
@@ -161,15 +195,22 @@ export function openApiSpec(baseUrl: string, requiresAuth: boolean) {
                 schema: {
                   type: "object",
                   properties: {
-                    transactionId: { type: "string", description: "Id returned by prepareTransaction." },
-                    waitSeconds: { type: "integer", minimum: 0, maximum: 25, description: "Long-poll up to this many seconds for a status change before returning. 20 is a good value." },
+                    abi: abiSchema,
+                    functionName: { type: "string", description: 'Function name or signature, e.g. "transfer". Omit for a deployment.' },
+                    args: argsSchema,
+                    bytecode: { type: "string", description: "Creation bytecode for a deployment. Args are then the constructor arguments." },
+                    to: { type: "string", description: "Contract address for a call. Omit for a deployment." },
+                    from: { type: "string", description: "Caller (msg.sender) to simulate as. Defaults to the zero address." },
+                    data: { type: "string", description: "Pre-encoded calldata, instead of abi + functionName/bytecode." },
+                    value: { type: "string", description: 'ETH to send, hex (e.g. "0x0") or decimal wei.' },
+                    chainId: { type: "integer", description: "EVM chain ID. 11155111 = Sepolia, 1 = mainnet, 8453 = Base." },
                   },
-                  required: ["transactionId"],
+                  required: ["chainId"],
                 },
               },
             },
           },
-          responses: { "200": { description: "Transaction state", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } },
+          responses: { "200": { description: "Simulation result", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } },
         },
       },
 
@@ -177,8 +218,9 @@ export function openApiSpec(baseUrl: string, requiresAuth: boolean) {
         post: {
           operationId: "encodeCall",
           summary: "ABI-encode a function call or a deployment with constructor args",
-          description:
-            "Function call: pass abi, functionName and args → calldata for prepareTransaction (with 'to'). Deployment: pass abi, bytecode (evm.bytecode.object from compileSolidity) and constructor args → deployment data for prepareTransaction (no 'to').",
+          description: TRANSACT_ENABLED
+            ? "Function call: pass abi, functionName and args → calldata for prepareTransaction (with 'to'). Deployment: pass abi, bytecode (evm.bytecode.object from compileSolidity) and constructor args → deployment data for prepareTransaction (no 'to')."
+            : "Function call: pass abi, functionName and args → calldata. Deployment: pass abi, bytecode (evm.bytecode.object from compileSolidity) and constructor args → deployment data.",
           ...security,
           requestBody: {
             required: true,
@@ -242,15 +284,23 @@ export function pluginManifest(baseUrl: string, requiresAuth: boolean) {
     schema_version: "v1",
     name_for_human: "Remix Solidity",
     name_for_model: "remix_solidity",
-    description_for_human:
-      "Compile, deploy and interact with Solidity smart contracts. You sign every transaction in your own browser wallet.",
+    description_for_human: TRANSACT_ENABLED
+      ? "Compile, deploy and interact with Solidity smart contracts. You sign every transaction in your own browser wallet."
+      : "Compile Solidity smart contracts, read deployed contracts and simulate deployments and calls. Nothing is signed or sent.",
     description_for_model: [
       "Tools for working with Solidity smart contracts.",
       "Use compileSolidity to compile sources and obtain ABI and bytecode.",
       "Use readContract to read state from a deployed contract (no transaction needed).",
       "Use encodeCall to build transaction data — a deployment (bytecode + constructor args) or a function call — never hand-encode hex.",
-      "Then use prepareTransaction to deploy (omit 'to') or call a function (pass 'to'), show the returned signUrl to the user as a clickable link, and call checkTransaction with waitSeconds: 20 until status is 'confirmed', 'reverted' or 'rejected'.",
-      "Never ask the user for a private key or seed phrase — signing always happens in the user's own browser wallet.",
+      ...(TRANSACT_ENABLED
+        ? [
+            "Then use prepareTransaction to deploy (omit 'to') or call a function (pass 'to'), show the returned signUrl to the user as a clickable link, and call checkTransaction with waitSeconds: 20 until status is 'confirmed', 'reverted' or 'rejected'.",
+            "Never ask the user for a private key or seed phrase — signing always happens in the user's own browser wallet.",
+          ]
+        : [
+            "Use simulateTransaction to dry-run a deployment (abi + bytecode, no 'to') or a function call (abi + functionName + args + 'to') and report whether it would succeed, the gas estimate, the return value or revert reason and any review warning.",
+            "Nothing is ever signed or sent, and you must never ask the user for a private key or seed phrase.",
+          ]),
       "Default to Sepolia (chainId 11155111) when the user does not name a chain.",
     ].join(" "),
     auth: requiresAuth

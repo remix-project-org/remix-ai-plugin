@@ -9,6 +9,8 @@ import { isActionPath, handleAction } from "./rest.js";
 import { getReview } from "./actions.js";
 import { openApiSpec, pluginManifest } from "./openapi.js";
 import { trackEvent, analyticsEnabled } from "./analytics.js";
+import { TRANSACT_ENABLED } from "./features.js";
+import { retryAfterSeconds, rateLimitPerMinute } from "./ratelimit.js";
 import { getTransaction, markSigning, markSent, markRejected, setWallets, type DetectedWallet, type UpdateResult } from "./store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,6 +67,16 @@ function json(res: http.ServerResponse, status: number, data: unknown) {
   res.end(JSON.stringify(data));
 }
 
+/** Returns true when the caller is over the request limit; writes a 429 in that case. */
+function rateLimited(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  const wait = retryAfterSeconds(req);
+  if (wait === undefined) return false;
+  res.setHeader("Retry-After", String(wait));
+  json(res, 429, { error: "Too many requests", retryAfterSeconds: wait });
+  trackEvent({ category: "rate_limit", action: "blocked" });
+  return true;
+}
+
 /** Returns true when the request may proceed; writes a 401 and returns false otherwise. */
 function authorized(req: http.IncomingMessage, res: http.ServerResponse): boolean {
   if (!AUTH_TOKEN) return true;
@@ -102,6 +114,7 @@ const server = http.createServer(async (req, res) => {
   // -------------------------------------------------------------------------
 
   if (url.pathname === "/mcp") {
+    if (rateLimited(req, res)) return;
     if (!authorized(req, res)) return;
 
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
@@ -173,6 +186,7 @@ const server = http.createServer(async (req, res) => {
 
   if (isActionPath(url.pathname)) {
     if (req.method !== "POST") { json(res, 405, { error: "Method not allowed" }); return; }
+    if (rateLimited(req, res)) return;
     if (!authorized(req, res)) return;
     let body: unknown;
     try { body = await parseBody(req); }
@@ -211,7 +225,7 @@ const server = http.createServer(async (req, res) => {
   // Runtime config for the React sign app
   // -------------------------------------------------------------------------
 
-  if (url.pathname === "/api/config" && req.method === "GET") {
+  if (TRANSACT_ENABLED && url.pathname === "/api/config" && req.method === "GET") {
     json(res, 200, { wcProjectId: WC_PROJECT_ID ?? null });
     return;
   }
@@ -221,7 +235,7 @@ const server = http.createServer(async (req, res) => {
   // -------------------------------------------------------------------------
 
   const signMatch = url.pathname.match(/^\/sign\/([a-f0-9-]{36})$/);
-  if (signMatch && req.method === "GET") {
+  if (TRANSACT_ENABLED && signMatch && req.method === "GET") {
     try {
       let html = fs.readFileSync(path.join(SIGN_DIST, "index.html"), "utf-8");
       const config = JSON.stringify({ wcProjectId: WC_PROJECT_ID ?? null });
@@ -236,7 +250,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Static assets for the React app (JS, CSS, etc.)
-  if (url.pathname.startsWith("/assets/") && req.method === "GET") {
+  if (TRANSACT_ENABLED && url.pathname.startsWith("/assets/") && req.method === "GET") {
     const assetPath = path.join(SIGN_DIST, url.pathname);
     if (!assetPath.startsWith(SIGN_DIST)) { json(res, 403, { error: "Forbidden" }); return; }
     try {
@@ -263,7 +277,7 @@ const server = http.createServer(async (req, res) => {
   // -------------------------------------------------------------------------
 
   const apiGetMatch = url.pathname.match(/^\/api\/tx\/([a-f0-9-]{36})$/);
-  if (apiGetMatch && req.method === "GET") {
+  if (TRANSACT_ENABLED && apiGetMatch && req.method === "GET") {
     const tx = getTransaction(apiGetMatch[1]!);
     if (!tx) { json(res, 404, { error: "Not found" }); return; }
     json(res, 200, tx);
@@ -271,7 +285,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   const apiReviewMatch = url.pathname.match(/^\/api\/tx\/([a-f0-9-]{36})\/review$/);
-  if (apiReviewMatch && req.method === "GET") {
+  if (TRANSACT_ENABLED && apiReviewMatch && req.method === "GET") {
     if (!getTransaction(apiReviewMatch[1]!)) { json(res, 404, { error: "Not found" }); return; }
     const review = await getReview(apiReviewMatch[1]!);
     if (!review) { json(res, 503, { error: "Review unavailable" }); return; }
@@ -280,7 +294,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   const apiCompleteMatch = url.pathname.match(/^\/api\/tx\/([a-f0-9-]{36})\/complete$/);
-  if (apiCompleteMatch && req.method === "POST") {
+  if (TRANSACT_ENABLED && apiCompleteMatch && req.method === "POST") {
     const id = apiCompleteMatch[1]!;
     let body: any;
     try { body = await parseBody(req); }
@@ -309,7 +323,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   const apiWalletsMatch = url.pathname.match(/^\/api\/tx\/([a-f0-9-]{36})\/wallets$/);
-  if (apiWalletsMatch && req.method === "POST") {
+  if (TRANSACT_ENABLED && apiWalletsMatch && req.method === "POST") {
     let body: any;
     try { body = await parseBody(req); }
     catch { json(res, 400, { error: "Invalid JSON body" }); return; }
@@ -344,18 +358,29 @@ const server = http.createServer(async (req, res) => {
       version: "1.0.0",
       auth: AUTH_TOKEN ? "bearer" : "none",
       analytics: analyticsEnabled ? "matomo" : "off",
+      rateLimitPerMinute: rateLimitPerMinute ?? "off",
+      mode: TRANSACT_ENABLED ? "transact" : "simulate-only",
       endpoints: {
         mcp:       "POST|GET|DELETE /mcp",
         manifest:  "GET  /.well-known/ai-plugin.json",
         openapi:   "GET  /openapi.json",
-        actions:   "POST /actions/{compile,encode-call,read-contract,transact,check-transaction}",
-        signPage:  "GET  /sign/:id",
-        txApi:     "GET  /api/tx/:id",
-        review:    "GET  /api/tx/:id/review",
-        complete:  "POST /api/tx/:id/complete",
-        wallets:   "POST /api/tx/:id/wallets",
+        actions:   TRANSACT_ENABLED
+          ? "POST /actions/{compile,simulate,encode-call,read-contract,transact,check-transaction}"
+          : "POST /actions/{compile,simulate,encode-call,read-contract}",
+        ...(TRANSACT_ENABLED
+          ? {
+              signPage:  "GET  /sign/:id",
+              txApi:     "GET  /api/tx/:id",
+              review:    "GET  /api/tx/:id/review",
+              complete:  "POST /api/tx/:id/complete",
+              wallets:   "POST /api/tx/:id/wallets",
+            }
+          : {}),
       },
-      tools: ["compile_solidity", "encode_call", "read_contract", "transact", "check_transaction"],
+      tools: [
+        "compile_solidity", "encode_call", "read_contract", "simulate",
+        ...(TRANSACT_ENABLED ? ["transact", "check_transaction"] : []),
+      ],
     });
     return;
   }
@@ -368,7 +393,7 @@ server.listen(PORT, () => {
   console.log(`  MCP connector : POST ${BASE_URL}/mcp  (Claude + ChatGPT)`);
   console.log(`  GPT Action    : GET  ${BASE_URL}/openapi.json`);
   console.log(`  Manifest      : GET  ${BASE_URL}/.well-known/ai-plugin.json`);
-  console.log(`  Sign page     : GET  ${BASE_URL}/sign/:id`);
+  console.log(TRANSACT_ENABLED ? `  Sign page     : GET  ${BASE_URL}/sign/:id` : "  Mode          : simulate-only (ENABLE_TRANSACT=false) — nothing can be signed or sent");
 });
 
 server.on("error", (err: NodeJS.ErrnoException) => {
