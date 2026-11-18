@@ -2,7 +2,7 @@
   "mcpServers": {
     "remix-solidity": {
       "type": "http",
-      "url": "https://shaded-crier-acronym.ngrok-free.dev/mcp"
+      "url": "https://ai-plugin.remixlabs.dev/"
     }
   }
 }

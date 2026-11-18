@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "npm run build:sign && npm run build:widget && tsc",
+    "build:simulate": "tsc",
     "build:sign": "npm install --prefix sign-app && npm run build --prefix sign-app",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "dev:server": "npm run build:widget && tsx --env-file-if-exists=.env src/index.ts",

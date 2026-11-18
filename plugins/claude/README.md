@@ -26,7 +26,7 @@ Supported chains: Ethereum (1), Sepolia (11155111), Polygon (137), Base (8453), 
 
 ## What is sent where
 
-When Claude calls a tool, the plugin sends the tool's inputs to the Remix Solidity server at `https://shaded-crier-acronym.ngrok-free.dev/mcp`. Depending on the tool, these inputs can include:
+When Claude calls a tool, the plugin sends the tool's inputs to the Remix Solidity server at `https://ai-plugin.remixlabs.dev`. Depending on the tool, these inputs can include:
 
 - Solidity source code and compiler settings
 - contract ABIs, function names and arguments
