@@ -8,3 +8,4 @@ sign-app/dist/
 remix-solidity-plugin.zip
 widget-dist/
 $S/
+.DS_Store

@@ -2,7 +2,7 @@
   "mcpServers": {
     "remix-solidity": {
       "type": "http",
-      "url": "${REMIX_SOLIDITY_MCP_URL:-http://localhost:3000/mcp}"
+      "url": "https://shaded-crier-acronym.ngrok-free.dev/mcp"
     }
   }
 }
