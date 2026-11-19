@@ -20,7 +20,7 @@ Every tool sets a title and explicit `readOnlyHint`, `destructiveHint` and `open
 One codebase, two builds, chosen by `ENABLE_TRANSACT`:
 
 - **Full** (default): all tools above, the signing page (`/sign/:id`), its API (`/api/*`) and the inline card.
-- **Simulate-only** (`ENABLE_TRANSACT=false`): only `compile_solidity`, `encode_call`, `read_contract` and `simulate`. `transact`, `check_transaction`, `/actions/transact`, `/actions/check-transaction`, the signing page and its API are not exposed, and the prompts, OpenAPI spec and plugin manifest no longer mention signing. `/health` reports `"mode": "simulate-only"`.
+- **Simulate-only** (`ENABLE_TRANSACT=false`): only `compile_solidity`, `encode_call`, `read_contract` and `simulate`. `transact`, `check_transaction`, `/actions/transact`, `/actions/check-transaction`, the signing page and its API are not exposed, and the prompts, OpenAPI spec and plugin manifest no longer mention signing. `/health` reports `"mode": "simulate-only"`. Documentation for it is served at `/docs` (source: `assets/docs.html`).
 
 Deploy the simulate-only build on its own URL, without `PLUGIN_AUTH_TOKEN`, if you want to submit it to a connector directory (see below).
 

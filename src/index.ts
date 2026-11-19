@@ -67,6 +67,24 @@ function json(res: http.ServerResponse, status: number, data: unknown) {
   res.end(JSON.stringify(data));
 }
 
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+/** Serves a static HTML page from assets/, with {{BASE_URL}} replaced by this server's public URL. */
+function servePage(req: http.IncomingMessage, res: http.ServerResponse, file: string) {
+  try {
+    const html = fs.readFileSync(path.join(ASSETS_DIR, file), "utf-8").replaceAll("{{BASE_URL}}", escapeHtml(BASE_URL));
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+    });
+    res.end(req.method === "HEAD" ? undefined : html);
+  } catch {
+    json(res, 404, { error: "Page not found" });
+  }
+}
+
 /** Returns true when the caller is over the request limit; writes a 429 in that case. */
 function rateLimited(req: http.IncomingMessage, res: http.ServerResponse): boolean {
   const wait = retryAfterSeconds(req);
@@ -212,18 +230,13 @@ const server = http.createServer(async (req, res) => {
 
   // Privacy policy page — the link connector directories ask for.
   if (url.pathname === "/privacy" && (req.method === "GET" || req.method === "HEAD")) {
-    try {
-      const html = fs.readFileSync(path.join(ASSETS_DIR, "privacy.html"));
-      res.writeHead(200, {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "public, max-age=3600",
-        "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
-      });
-      res.end(req.method === "HEAD" ? undefined : html);
-    } catch {
-      json(res, 404, { error: "Privacy policy not found" });
-    }
+    servePage(req, res, "privacy.html");
+    return;
+  }
+
+  // Documentation covers the simulate-only tool set, so the full build does not serve it.
+  if (!TRANSACT_ENABLED && url.pathname === "/docs" && (req.method === "GET" || req.method === "HEAD")) {
+    servePage(req, res, "docs.html");
     return;
   }
 
@@ -381,6 +394,7 @@ const server = http.createServer(async (req, res) => {
         mcp:       "POST|GET|DELETE /mcp",
         manifest:  "GET  /.well-known/ai-plugin.json",
         privacy:   "GET  /privacy",
+        ...(TRANSACT_ENABLED ? {} : { docs: "GET  /docs" }),
         openapi:   "GET  /openapi.json",
         actions:   TRANSACT_ENABLED
           ? "POST /actions/{compile,simulate,encode-call,read-contract,transact,check-transaction}"
