@@ -210,6 +210,23 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Privacy policy page — the link connector directories ask for.
+  if (url.pathname === "/privacy" && (req.method === "GET" || req.method === "HEAD")) {
+    try {
+      const html = fs.readFileSync(path.join(ASSETS_DIR, "privacy.html"));
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "public, max-age=3600",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+      });
+      res.end(req.method === "HEAD" ? undefined : html);
+    } catch {
+      json(res, 404, { error: "Privacy policy not found" });
+    }
+    return;
+  }
+
   if (url.pathname === "/logo.png" && req.method === "GET") {
     try {
       const png = fs.readFileSync(path.join(ASSETS_DIR, "logo.png"));
@@ -363,6 +380,7 @@ const server = http.createServer(async (req, res) => {
       endpoints: {
         mcp:       "POST|GET|DELETE /mcp",
         manifest:  "GET  /.well-known/ai-plugin.json",
+        privacy:   "GET  /privacy",
         openapi:   "GET  /openapi.json",
         actions:   TRANSACT_ENABLED
           ? "POST /actions/{compile,simulate,encode-call,read-contract,transact,check-transaction}"
