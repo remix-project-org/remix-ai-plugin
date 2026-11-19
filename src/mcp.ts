@@ -273,7 +273,7 @@ function registerSigningTools(server: McpServer) {
   );
 }
 
-/** Prompts that walk through compile → sign; mirror the skills in plugins/claude/skills. */
+/** Prompts that walk through compile → sign (full build only). */
 function registerSigningPrompts(server: McpServer) {
   server.registerPrompt(
     "deploy-contract",
@@ -365,7 +365,7 @@ function registerSigningPrompts(server: McpServer) {
   );
 }
 
-/** Prompts for the simulate-only build: the same flows as above, ending in a dry run instead of a signature. */
+/** Prompts for the simulate-only build: the same flows as above, ending in a dry run instead of a signature. Mirror the skills in plugins/claude/skills. */
 function registerSimulationPrompts(server: McpServer) {
   server.registerPrompt(
     "simulate-deployment",

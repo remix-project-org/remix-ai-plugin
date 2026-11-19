@@ -8,7 +8,7 @@ import { createMcpServer, trackMcpSession } from "./mcp.js";
 import { isActionPath, handleAction } from "./rest.js";
 import { getReview } from "./actions.js";
 import { openApiSpec, pluginManifest } from "./openapi.js";
-import { trackEvent, analyticsEnabled } from "./analytics.js";
+import { trackEvent, analyticsEnabled, pageTracking } from "./analytics.js";
 import { TRANSACT_ENABLED } from "./features.js";
 import { retryAfterSeconds, rateLimitPerMinute } from "./ratelimit.js";
 import { getTransaction, markSigning, markSent, markRejected, setWallets, type DetectedWallet, type UpdateResult } from "./store.js";
@@ -65,6 +65,42 @@ function cors(res: http.ServerResponse) {
 function json(res: http.ServerResponse, status: number, data: unknown) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(data));
+}
+
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+/**
+ * Fills in a static page from assets/: {{BASE_URL}}, {{BASE_HOST}} and {{MATOMO_SNIPPET}}, and
+ * keeps only the <!--simulate-only-->, <!--full-only--> and <!--analytics-only--> blocks that apply
+ * to this server (blocks must not be nested).
+ */
+function renderPage(html: string, tracking: ReturnType<typeof pageTracking>): string {
+  const applies = { simulate: !TRANSACT_ENABLED, full: TRANSACT_ENABLED, analytics: Boolean(tracking) };
+  return html
+    .replace(/<!--(simulate|full|analytics)-only-->([\s\S]*?)<!--\/\1-only-->/g, (_block, key: keyof typeof applies, body: string) => (applies[key] ? body : ""))
+    .replaceAll("{{BASE_URL}}", escapeHtml(BASE_URL))
+    .replaceAll("{{BASE_HOST}}", escapeHtml(new URL(BASE_URL).host))
+    .replaceAll("{{MATOMO_SNIPPET}}", tracking?.snippet ?? "");
+}
+
+function servePage(req: http.IncomingMessage, res: http.ServerResponse, file: string) {
+  try {
+    const tracking = pageTracking();
+    const html = renderPage(fs.readFileSync(path.join(ASSETS_DIR, file), "utf-8"), tracking);
+    // The Matomo snippet is an inline script that loads from, and reports to, the Matomo host.
+    const csp = tracking
+      ? `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' ${tracking.origin}; connect-src ${tracking.origin}; img-src ${tracking.origin}`
+      : "default-src 'none'; style-src 'unsafe-inline'";
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": csp,
+    });
+    res.end(req.method === "HEAD" ? undefined : html);
+  } catch {
+    json(res, 404, { error: "Page not found" });
+  }
 }
 
 /** Returns true when the caller is over the request limit; writes a 429 in that case. */
@@ -207,6 +243,17 @@ const server = http.createServer(async (req, res) => {
 
   if ((url.pathname === "/openapi.json" || url.pathname === "/.well-known/openapi.json") && req.method === "GET") {
     json(res, 200, openApiSpec(BASE_URL, Boolean(AUTH_TOKEN)));
+    return;
+  }
+
+  // Privacy policy and documentation pages — the links connector directories ask for.
+  if (url.pathname === "/privacy" && (req.method === "GET" || req.method === "HEAD")) {
+    servePage(req, res, "privacy.html");
+    return;
+  }
+
+  if (url.pathname === "/docs" && (req.method === "GET" || req.method === "HEAD")) {
+    servePage(req, res, "docs.html");
     return;
   }
 
@@ -363,6 +410,8 @@ const server = http.createServer(async (req, res) => {
       endpoints: {
         mcp:       "POST|GET|DELETE /mcp",
         manifest:  "GET  /.well-known/ai-plugin.json",
+        privacy:   "GET  /privacy",
+        docs:      "GET  /docs",
         openapi:   "GET  /openapi.json",
         actions:   TRANSACT_ENABLED
           ? "POST /actions/{compile,simulate,encode-call,read-contract,transact,check-transaction}"

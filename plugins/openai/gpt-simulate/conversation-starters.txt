@@ -1,0 +1,4 @@
+Compile this contract and simulate deploying it to Sepolia
+Read the current state of a deployed contract
+Simulate a function call on a contract I already deployed
+What does this contract's ABI look like?

@@ -4,7 +4,11 @@ sign-dist/
 sign-app/node_modules/
 sign-app/dist/
 .env
+.env_main
+.env_simulate
 *.local
 remix-solidity-plugin.zip
+remix-solidity-simulate-plugin.zip
 widget-dist/
 $S/
+.DS_Store

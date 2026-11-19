@@ -1,0 +1,10 @@
+{
+  "name": "remix-solidity",
+  "displayName": "Remix Solidity",
+  "version": "1.0.0",
+  "description": "Compile Solidity smart contracts, read deployed contracts and simulate deployments and calls directly from Claude. Nothing is signed or sent.",
+  "author": { "name": "Remix Labs" },
+  "homepage": "https://remix-project.org",
+  "repository": "https://github.com/remix-project-org/remix-ai-plugin",
+  "license": "MIT"
+}
