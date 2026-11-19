@@ -84,7 +84,7 @@ To expose a local server: `ngrok http 3000`, then set `BASE_URL` to the ngrok UR
 - To answer requests the server contacts the configured RPC nodes, Sourcify, the ERC-7730 clear-signing registry on GitHub, and an npm CDN or GitHub for imports.
 - When Matomo is configured, the server sends one server-side event per MCP request: the request type (tool, prompt, resource or protocol method name), the client name as it identifies itself (`rest:<product>` for REST callers), success, error or cancelled, the chain ID, and a hashed session identifier. It never sends source code, ABIs, addresses, call data, amounts, error messages or conversation content.
 - Requests rejected by the rate limiter are counted as `rate_limit` events. The server writes no request logs of its own.
-- The privacy policy is served at `/privacy` (source: `assets/privacy.html`). Both directories require a published privacy policy; fill in the bracketed placeholders before submitting.
+- The privacy policy is served at `/privacy` (source: `assets/privacy.html`). Both directories require a published privacy policy; review the text before submitting.
 
 ## Directory listings
 
