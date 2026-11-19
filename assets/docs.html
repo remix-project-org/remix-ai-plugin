@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remix Solidity documentation</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1f2328;
+    --muted: #59636e;
+    --line: #d1d9e0;
+    --link: #0969da;
+    --code-bg: #f6f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9198a1;
+      --line: #3d444d;
+      --link: #4493f8;
+      --code-bg: #151b23;
+    }
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 820px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; margin: 40px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 28px 0 6px; }
+  p, ul, ol { margin: 0 0 16px; }
+  ul, ol { padding-left: 24px; }
+  li { margin: 4px 0; }
+  a { color: var(--link); }
+  .lead { color: var(--muted); margin-bottom: 20px; }
+  nav { margin: 0 0 8px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; }
+  nav a { margin-right: 14px; white-space: nowrap; }
+  code, pre { font: 0.9em/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 0 0 16px; }
+  pre code { background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 0 0 16px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 12px; border: 1px solid var(--line); }
+  th { font-weight: 600; }
+  @media (max-width: 560px) {
+    table, thead, tbody, tr, th, td { display: block; }
+    thead { position: absolute; left: -9999px; }
+    tr { border: 1px solid var(--line); margin-bottom: 12px; }
+    td { border: 0; border-bottom: 1px solid var(--line); }
+    td:last-child { border-bottom: 0; }
+  }
+</style>
+</head>
+<body>
+<main>
+<h1>Remix Solidity documentation</h1>
+<p class="lead">Compile, read and simulate Solidity smart contracts from Claude, with nothing ever signed or sent.</p>
+
+<nav>
+  <a href="#overview">Overview</a>
+  <a href="#connect">Connect</a>
+  <a href="#tools">Tools</a>
+  <a href="#prompts">Prompts</a>
+  <a href="#chains">Chains</a>
+  <a href="#results">Reading results</a>
+  <a href="#limits">Limits</a>
+  <a href="#rest">REST API</a>
+  <a href="#support">Support</a>
+</nav>
+
+<h2 id="overview">Overview</h2>
+<p>Remix Solidity is an MCP server for smart-contract work. It compiles Solidity with the Remix compiler, encodes contract calls, reads the state of deployed contracts, and simulates deployments and function calls on major EVM chains. A simulation tells you whether a transaction would succeed, what it would cost in gas, what it would return or why it would revert, and gives a plain-language review of what it does.</p>
+<p>This server only simulates. It has no tool that signs, sends or broadcasts a transaction, it never asks for or holds private keys, seed phrases or funds, and nothing is written on-chain. To deploy or call a contract for real, use your own wallet or deployment tooling. No account or sign-in is needed.</p>
+
+<h2 id="connect">Connect</h2>
+<p>The server speaks MCP over Streamable HTTP at:</p>
+<pre><code>{{BASE_URL}}/mcp</code></pre>
+<ul>
+  <li><strong>Claude (custom connector):</strong> in Claude's connector settings, add a custom connector and enter the URL above.</li>
+  <li><strong>Claude Code plugin:</strong> install the Remix Solidity plugin, which points at the same URL and adds two skills, <code>simulate-deployment</code> and <code>simulate-call</code>.</li>
+  <li><strong>ChatGPT (developer mode):</strong> add the URL above as an MCP connector.</li>
+  <li><strong>Custom GPT:</strong> import <code>{{BASE_URL}}/openapi.json</code> as an Action. See <a href="#rest">REST API</a>.</li>
+</ul>
+
+<h3>Other endpoints</h3>
+<table>
+  <thead><tr><th>Path</th><th>What it serves</th></tr></thead>
+  <tbody>
+    <tr><td><code>/docs</code></td><td>This documentation</td></tr>
+    <tr><td><code>/privacy</code></td><td>Privacy policy</td></tr>
+    <tr><td><code>/health</code></td><td>Server status, mode and the list of tools and endpoints</td></tr>
+    <tr><td><code>/openapi.json</code></td><td>OpenAPI description of the REST actions</td></tr>
+    <tr><td><code>/.well-known/ai-plugin.json</code></td><td>Plugin manifest</td></tr>
+  </tbody>
+</table>
+
+<h2 id="tools">Tools</h2>
+<p>All four tools are read-only. Tool failures come back as a result with <code>success: false</code> and an <code>error</code> message, not as protocol errors.</p>
+
+<h3><code>compile_solidity</code></h3>
+<p>Compiles one or more Solidity files with the Remix compiler and returns the ABI, bytecode, and any errors or warnings. Imports that are not in the request (for example <code>@openzeppelin/contracts/...</code>) are fetched automatically.</p>
+<table>
+  <thead><tr><th>Parameter</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>sources</code> (required)</td><td>Map of filename to <code>{ "content": "..." }</code> for each Solidity file</td></tr>
+    <tr><td><code>version</code></td><td>Compiler version, for example <code>v0.8.28+commit.7893614a</code>. Defaults to 0.8.28.</td></tr>
+    <tr><td><code>settings</code></td><td>solc settings such as the optimizer and output selection</td></tr>
+  </tbody>
+</table>
+
+<h3><code>encode_call</code></h3>
+<p>ABI-encodes a function call, or a deployment with constructor arguments, so you can inspect the calldata. It runs on the server only and does not contact a chain. To see what the data would do on-chain, use <code>simulate</code>, which encodes for you.</p>
+<table>
+  <thead><tr><th>Parameter</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>abi</code> (required)</td><td>JSON ABI (array or string), the compiled contract output, or human-readable signatures such as <code>function transfer(address to, uint256 amount)</code></td></tr>
+    <tr><td><code>functionName</code></td><td>Function name or full signature. Omit when encoding a deployment.</td></tr>
+    <tr><td><code>args</code></td><td>Arguments in ABI order. Pass uint and int values as decimal strings, addresses as <code>0x</code> strings, arrays and tuples as JSON arrays.</td></tr>
+    <tr><td><code>bytecode</code></td><td>Creation bytecode. When set, encodes a deployment with <code>args</code> as constructor arguments.</td></tr>
+  </tbody>
+</table>
+
+<h3><code>read_contract</code></h3>
+<p>Calls a <code>view</code> or <code>pure</code> function on a deployed contract (<code>eth_call</code>) and returns the decoded result. Calling a state-changing function this way only simulates it.</p>
+<table>
+  <thead><tr><th>Parameter</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>address</code> (required)</td><td>Deployed contract address</td></tr>
+    <tr><td><code>chainId</code> (required)</td><td>EVM chain ID, see <a href="#chains">Chains</a></td></tr>
+    <tr><td><code>abi</code> (required)</td><td>Contract ABI, as for <code>encode_call</code></td></tr>
+    <tr><td><code>functionName</code> (required)</td><td>Function name or full signature, for example <code>balanceOf</code></td></tr>
+    <tr><td><code>args</code></td><td>Arguments in ABI order</td></tr>
+    <tr><td><code>from</code></td><td>Caller address (<code>msg.sender</code>) for the call</td></tr>
+  </tbody>
+</table>
+
+<h3><code>simulate</code></h3>
+<p>Dry-runs a deployment or a function call against the chain's latest state and reports what would happen. Nothing is signed, sent or stored. The server runs <code>eth_call</code> and <code>eth_estimateGas</code> on an RPC node and builds a clear-signing review in parallel.</p>
+<table>
+  <thead><tr><th>Parameter</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>chainId</code> (required)</td><td>EVM chain ID, see <a href="#chains">Chains</a></td></tr>
+    <tr><td><code>to</code></td><td>Contract address for a call. Omit for a deployment.</td></tr>
+    <tr><td><code>abi</code></td><td>Contract ABI. Required with <code>functionName</code> or <code>bytecode</code>. With pre-encoded <code>data</code> it is only used to show the decoded call.</td></tr>
+    <tr><td><code>functionName</code></td><td>Function to call, by name or full signature. Requires <code>to</code> and <code>abi</code>.</td></tr>
+    <tr><td><code>args</code></td><td>Function or constructor arguments in ABI order</td></tr>
+    <tr><td><code>bytecode</code></td><td>Creation bytecode for a deployment (<code>evm.bytecode.object</code> from <code>compile_solidity</code>). Requires <code>abi</code>.</td></tr>
+    <tr><td><code>data</code></td><td>Pre-encoded calldata, instead of <code>abi</code> with <code>functionName</code> or <code>bytecode</code></td></tr>
+    <tr><td><code>value</code></td><td>ETH to send, as a hex string such as <code>0x0</code> or a decimal string in wei</td></tr>
+    <tr><td><code>from</code></td><td>Caller to simulate as. Without it the zero address is used, so balance and permission checks may fail for the wrong reason.</td></tr>
+  </tbody>
+</table>
+
+<p>Example request:</p>
+<pre><code>{
+  "to": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+  "abi": ["function name() view returns (string)"],
+  "functionName": "name",
+  "chainId": 1
+}</code></pre>
+<p>Example response (trimmed):</p>
+<pre><code>{
+  "simulated": true,
+  "success": true,
+  "chainId": 1,
+  "gasEstimate": "24513",
+  "returns": {
+    "signature": "function name() view returns (string)",
+    "outputs": [{ "name": "", "type": "string", "value": "Wrapped Ether" }]
+  },
+  "review": { "intent": "Call name on WETH9", "source": "verified", "warnings": [] },
+  "note": "Simulation only: nothing was signed or sent, ..."
+}</code></pre>
+
+<h2 id="prompts">Prompts</h2>
+<p>Clients that support MCP prompts show these as ready-made workflows.</p>
+<table>
+  <thead><tr><th>Prompt</th><th>Arguments</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>simulate-deployment</code></td><td><code>source</code>, <code>filename</code>, <code>chain_id</code></td><td>Compiles a contract, then simulates deploying it</td></tr>
+    <tr><td><code>simulate-call</code></td><td><code>address</code>, <code>abi</code>, <code>function_call</code>, <code>chain_id</code>, <code>from</code>, <code>value</code></td><td>Reads a view function, or simulates a state-changing call on a deployed contract</td></tr>
+  </tbody>
+</table>
+<p>When no chain is named, workflows default to Sepolia (chain ID 11155111).</p>
+
+<h3>Example requests to Claude</h3>
+<ul>
+  <li>"Compile this contract and simulate deploying it to Sepolia." (paste your Solidity source)</li>
+  <li>"What is the <code>totalSupply</code> of the USDC contract at 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 on Ethereum mainnet?"</li>
+  <li>"Simulate <code>transfer(0x…, 1000)</code> on this contract on Base from this address and tell me if it would revert."</li>
+  <li>"What would approving unlimited USDC to this spender do? Simulate it and show the warnings."</li>
+</ul>
+
+<h2 id="chains">Supported chains</h2>
+<table>
+  <thead><tr><th>Chain</th><th>Chain ID</th></tr></thead>
+  <tbody>
+    <tr><td>Ethereum</td><td>1</td></tr>
+    <tr><td>Sepolia</td><td>11155111</td></tr>
+    <tr><td>Polygon</td><td>137</td></tr>
+    <tr><td>Base</td><td>8453</td></tr>
+    <tr><td>Base Sepolia</td><td>84532</td></tr>
+    <tr><td>Arbitrum One</td><td>42161</td></tr>
+    <tr><td>Optimism</td><td>10</td></tr>
+  </tbody>
+</table>
+<p>Requests for any other chain ID return an error that lists the supported ones.</p>
+
+<h2 id="results">Reading a simulation result</h2>
+<table>
+  <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>success</code></td><td><code>true</code> if the call or deployment would succeed, <code>false</code> if it would revert</td></tr>
+    <tr><td><code>gasEstimate</code></td><td>Estimated gas, when the simulation succeeds</td></tr>
+    <tr><td><code>returns</code></td><td>Decoded return value of a call, when the ABI describes the function</td></tr>
+    <tr><td><code>deployedCodeBytes</code></td><td>Size of the runtime code a deployment would create</td></tr>
+    <tr><td><code>revert</code></td><td>When it fails: <code>message</code>, the revert <code>reason</code> if there is one, a decoded <code>customError</code> when the ABI defines it, and the raw <code>data</code></td></tr>
+    <tr><td><code>decoded</code></td><td>The call or constructor as the server understood it, with decoded arguments</td></tr>
+    <tr><td><code>review</code></td><td>Clear-signing review: <code>intent</code> (one-line summary), <code>source</code>, <code>contractName</code> and <code>warnings</code></td></tr>
+  </tbody>
+</table>
+
+<h3>Where a review comes from</h3>
+<table>
+  <thead><tr><th><code>review.source</code></th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>erc7730</code></td><td>Matched a descriptor in the ERC-7730 clear-signing registry</td></tr>
+    <tr><td><code>verified</code></td><td>Built from the contract's verified source on Sourcify</td></tr>
+    <tr><td><code>assistant</code></td><td>Built only from the ABI supplied in the request, so it is as trustworthy as that ABI</td></tr>
+    <tr><td><code>none</code></td><td>No contract call to describe, for example a plain ETH transfer</td></tr>
+  </tbody>
+</table>
+<p>Warnings have a level of <code>danger</code> or <code>caution</code>. They flag risks such as an unlimited token approval, approving all NFTs in a collection, a change of contract owner or implementation, or a call to an address with no contract.</p>
+
+<h2 id="limits">Limits and behaviour</h2>
+<ul>
+  <li><strong>A simulation is a prediction.</strong> It runs against the latest block. A real transaction can behave differently if chain state changes first.</li>
+  <li><strong>No state diff.</strong> You get the return value or revert reason and the gas estimate, not balance changes, token transfers or event logs.</li>
+  <li><strong>Default sender.</strong> Without <code>from</code>, the zero address is the caller. Pass <code>from</code> when the result depends on who calls.</li>
+  <li><strong>Public RPC nodes.</strong> Requests go to public nodes that can rate-limit or fail. A request that gets no answer within 20 seconds fails.</li>
+  <li><strong>Compilation.</strong> Compiles time out after 60 seconds. The default compiler is 0.8.28.</li>
+  <li><strong>Imports.</strong> Files not included in the request are fetched only over HTTPS from unpkg.com, cdn.jsdelivr.net and raw.githubusercontent.com (including GitHub file links).</li>
+  <li><strong>Request size.</strong> Requests larger than 5 MB are refused.</li>
+  <li><strong>Rate limiting.</strong> The server may limit requests per client. Over the limit it answers HTTP 429 with a <code>Retry-After</code> header.</li>
+</ul>
+
+<h2 id="rest">REST API</h2>
+<p>The same capabilities are available as JSON <code>POST</code> endpoints for custom GPT Actions and other HTTP clients. The full description is at <code>{{BASE_URL}}/openapi.json</code>.</p>
+<table>
+  <thead><tr><th>Endpoint</th><th>Equivalent tool</th></tr></thead>
+  <tbody>
+    <tr><td><code>POST /actions/compile</code></td><td><code>compile_solidity</code></td></tr>
+    <tr><td><code>POST /actions/simulate</code></td><td><code>simulate</code></td></tr>
+    <tr><td><code>POST /actions/encode-call</code></td><td><code>encode_call</code></td></tr>
+    <tr><td><code>POST /actions/read-contract</code></td><td><code>read_contract</code></td></tr>
+  </tbody>
+</table>
+<p>Errors return HTTP 400 with <code>{ "success": false, "error": "..." }</code>.</p>
+
+<h2 id="support">Privacy and support</h2>
+<p>See the <a href="/privacy">privacy policy</a> for what the server receives, who it is passed to and how long anything is kept. Questions or problems: <a href="mailto:support@remixlabs.live">support@remixlabs.live</a>.</p>
+</main>
+</body>
+</html>
