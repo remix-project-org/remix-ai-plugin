@@ -10,8 +10,15 @@
 
 import crypto from "crypto";
 
-const MATOMO_URL = process.env.MATOMO_URL;
-const MATOMO_SITE_ID = process.env.MATOMO_SITE_ID;
+/** The tracking endpoint. Accepts the Matomo install URL or the matomo.php URL, with stray whitespace. */
+function trackerUrl(raw: string | undefined): string | undefined {
+  const url = raw?.trim().replace(/\/+$/, "");
+  if (!url) return undefined;
+  return url.endsWith(".php") ? url : `${url}/matomo.php`;
+}
+
+const MATOMO_URL = trackerUrl(process.env.MATOMO_URL);
+const MATOMO_SITE_ID = process.env.MATOMO_SITE_ID?.trim();
 const BASE_URL = () => process.env.BASE_URL ?? `http://localhost:${process.env.PORT ?? 3000}`;
 
 export const analyticsEnabled = Boolean(MATOMO_URL && MATOMO_SITE_ID);

@@ -77,7 +77,8 @@ function servePage(req: http.IncomingMessage, res: http.ServerResponse, file: st
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "public, max-age=3600",
       "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+      // The pages carry the Matomo page-view snippet, which needs its inline script and the Matomo host.
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' https://matomo.remix.live; connect-src https://matomo.remix.live; img-src https://matomo.remix.live",
     });
     res.end(req.method === "HEAD" ? undefined : html);
   } catch {
