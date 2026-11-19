@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "remix-solidity": {
+      "type": "http",
+      "url": "https://ai-plugin.remixlabs.dev/mcp"
+    }
+  }
+}

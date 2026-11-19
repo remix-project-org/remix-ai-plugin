@@ -9,7 +9,7 @@ Settings → Connectors → Create. Point it at:
     <BASE_URL>/mcp
 
 Transport: Streamable HTTP. Auth: none, or Bearer if `PLUGIN_AUTH_TOKEN` is set.
-Tools exposed: compile_solidity, encode_call, read_contract, transact, check_transaction.
+Tools exposed: compile_solidity, encode_call, read_contract, simulate, transact, check_transaction.
 Prompts exposed: deploy-contract, call-contract.
 
 ## B. Custom GPT Action

@@ -1,8 +1,10 @@
 {
-  "name": "remix-solidity",
-  "displayName": "Remix Solidity",
+  "name": "remix-solidity-full",
+  "displayName": "Remix Solidity (full)",
   "version": "1.0.0",
   "description": "Compile, deploy and interact with Solidity smart contracts directly from Claude. Transactions are signed in your own browser wallet via a signing page.",
-  "author": "Remix Labs",
+  "author": {"name": "Remix Labs"},
+  "homepage": "https://remix-project.org",
+  "repository": "https://github.com/remix-project-org/remix-ai-plugin",
   "license": "MIT"
 }

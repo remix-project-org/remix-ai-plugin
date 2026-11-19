@@ -1,0 +1,30 @@
+<!-- Operator setup notes, not end-user documentation. -->
+
+Two ways to use this server from ChatGPT. Both expose the same capabilities.
+
+## A. MCP connector (ChatGPT developer mode / Apps SDK)
+
+Settings → Connectors → Create. Point it at:
+
+    <BASE_URL>/mcp
+
+Transport: Streamable HTTP. Auth: none, or Bearer if `PLUGIN_AUTH_TOKEN` is set.
+Tools exposed: compile_solidity, encode_call, read_contract, simulate.
+Prompts exposed: simulate-deployment, simulate-call.
+
+This describes the simulate-only server (`ENABLE_TRANSACT=false`): nothing can be
+signed or sent from the chat.
+
+## B. Custom GPT Action
+
+In the GPT editor → Actions → Create new action → Import from URL:
+
+    <BASE_URL>/openapi.json
+
+Then paste `instructions.md` into the GPT's Instructions box and
+`conversation-starters.txt` into the starters. Authentication: None, or
+API Key → Bearer when `PLUGIN_AUTH_TOKEN` is set.
+
+The plugin manifest is served at `<BASE_URL>/.well-known/ai-plugin.json`.
+
+`BASE_URL` must be publicly reachable — ChatGPT calls it directly.

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remix Solidity plugin privacy policy</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1f2328;
+    --muted: #59636e;
+    --line: #d1d9e0;
+    --link: #0969da;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9198a1;
+      --line: #3d444d;
+      --link: #4493f8;
+    }
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 24px; }
+  h2 { font-size: 1.25rem; margin: 32px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  p, ul { margin: 0 0 16px; }
+  ul { padding-left: 24px; }
+  li { margin: 4px 0; }
+  a { color: var(--link); }
+  table { width: 100%; border-collapse: collapse; margin: 0 0 16px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 12px; border: 1px solid var(--line); }
+  th { font-weight: 600; }
+  @media (max-width: 560px) {
+    table, thead, tbody, tr, th, td { display: block; }
+    thead { position: absolute; left: -9999px; }
+    tr { border: 1px solid var(--line); margin-bottom: 12px; }
+    td { border: 0; border-bottom: 1px solid var(--line); }
+    td:last-child { border-bottom: 0; }
+  }
+</style>
+{{MATOMO_SNIPPET}}
+</head>
+<body>
+<main>
+<h1>Remix Solidity plugin privacy policy</h1>
+
+<h2>Overview</h2>
+<p>This policy explains what data the Remix Solidity plugin and its server at {{BASE_HOST}} send, store and share. The server is run by Remix Labs. Short version: <!--simulate-only-->the server only simulates, it has no accounts, and it keeps no database of what you send.<!--/simulate-only--><!--full-only-->you sign every transaction in your own browser wallet, the server never holds your keys, it has no accounts, and it keeps no database of what you send.<!--/full-only--></p>
+<p>It covers the Claude plugin and the MCP server it connects to. It does not cover Claude itself, which is governed by Anthropic's own terms and privacy policy.</p>
+
+<h2>What we collect</h2>
+<p>When Claude calls a tool, the plugin sends that tool's inputs to our server. Depending on the tool, they can include:</p>
+<ul>
+  <li>Solidity source code and compiler settings</li>
+  <li>contract ABIs, function names and arguments</li>
+  <li>contract and caller addresses, call data, ETH amounts and chain IDs</li>
+<!--full-only-->  <li>when you prepare a transaction for signing: the destination address, call data, ETH amount, chain ID and an optional description</li>
+<!--/full-only--></ul>
+<!--full-only--><p>When you open the signing page, the server also receives the names of the browser wallets it detects, the status of each signing attempt (started, sent or rejected, with any error message the wallet returns) and, if you send the transaction, its transaction hash.</p>
+<!--/full-only--><!--analytics-only--><p>We also record minimal usage analytics: the tool name, the client name, the outcome (success or failure) and the chain ID. Analytics never include source code, addresses, call data or amounts.</p>
+<!--/analytics-only--><p>No account or sign-in is needed, and the server does not require authentication. We never ask for or receive private keys, seed phrases or funds.</p>
+<p>We have disabled access logging on our server and do not store IP addresses. Our hosting provider and network proxy (Cloudflare) process IP addresses to deliver requests and may keep short-term technical logs under their own policies.<!--analytics-only--> The exception is page views of our web pages, described under Website analytics.<!--/analytics-only--></p>
+
+<h2>Who receives data to answer a request</h2>
+<p>To answer a request, the server passes some of the data above to these services:</p>
+<table>
+  <thead>
+    <tr><th>Service</th><th>What it receives</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Public blockchain RPC nodes for the chosen chain</td><td>Contract and caller addresses, call data, values and the chain ID, for reads and simulations, plus ENS name lookups</td></tr>
+    <tr><td>Sourcify (sourcify.dev)</td><td>Contract address and chain ID, to fetch verified source code and ABIs</td></tr>
+    <tr><td>ERC-7730 clear-signing registry (raw.githubusercontent.com)</td><td>Requests for the registry index and the descriptor files of the contracts involved</td></tr>
+    <tr><td>npm CDN (unpkg.com or jsDelivr) and GitHub</td><td>The path of an imported Solidity file, such as an OpenZeppelin contract, that was not included in your request</td></tr>
+<!--full-only-->    <tr><td>WalletConnect (Reown), if you connect a wallet with it on the signing page</td><td>Your browser, not our server, communicates with WalletConnect services, which receive your IP address and wallet connection details under their own privacy policy</td></tr>
+    <tr><td>Public blockchain RPC nodes, queried by your browser from the signing page</td><td>Requests your browser may make directly, so the node's operator may see your IP address</td></tr>
+<!--/full-only-->  </tbody>
+</table>
+<p>Blockchain data is public by design. Addresses and call data sent to an RPC node for a simulation may be visible to that node's operator. We do not sell your data or use it for advertising.</p>
+
+<h2>How long we keep it</h2>
+<p>The server does not store request data in a database or on disk. It keeps short-lived in-memory caches only: fetched import files, recently encoded calls, and public contract metadata for up to 6 hours. These caches are cleared when the server restarts.</p>
+<!--full-only--><p>Transactions prepared for signing (destination, call data, amount, chain, status, detected wallet names and any transaction hash) are kept in the server's memory for one hour and then deleted.</p>
+<!--/full-only--><!--analytics-only--><p>Usage analytics (tool name, client name, outcome and chain ID) contain no personal content. They are kept until we delete them; there is no fixed retention period.</p>
+<!--/analytics-only-->
+<h2>What we do not do, and your choices</h2>
+<ul>
+<!--simulate-only-->  <li>The plugin never signs, sends or broadcasts a transaction, and nothing is written on-chain. To deploy or call a contract for real, use your own wallet or deployment tooling.</li>
+<!--/simulate-only--><!--full-only-->  <li>The server never signs a transaction for you and never holds your keys or funds. You sign in your own wallet. Once a signed transaction is sent it is public on the blockchain and cannot be undone.</li>
+<!--/full-only-->  <li>We do not read Claude's memory, chat history or uploaded files. We only receive the inputs Claude passes to a tool.</li>
+  <li>We do not use your inputs to build user profiles.</li>
+</ul>
+<p>Simulations are public-chain queries and cannot be undone once sent to an RPC node, so avoid including secrets in Solidity source or call arguments. To stop all data flowing to the server, uninstall the plugin.</p>
+
+<!--analytics-only--><h2>Website analytics</h2>
+<p>The web pages of this server, including this policy and the documentation, count page views with Matomo, run by us. Matomo may set cookies in your browser and receives your IP address, browser and device details, the page you viewed and the page that referred you. This applies to visiting these pages only and is separate from the tool analytics described above. Page-view data is kept until we delete it.</p>
+
+<!--/analytics-only--><h2>Security, children and changes</h2>
+<p>The server is served over HTTPS. The service is not directed at children under 16. We will post changes to this policy at this address and update the effective date below.</p>
+
+<h2>Contact</h2>
+<p>Questions or data requests: <a href="mailto:support@remixlabs.live">support@remixlabs.live</a>. Effective date: November 19, 2026.</p>
+</main>
+</body>
+</html>
