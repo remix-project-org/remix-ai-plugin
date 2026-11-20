@@ -14,6 +14,7 @@
     "dev:full": "npm run build:widget && ENABLE_TRANSACT=true tsx --env-file=.env_main src/index.ts",
     "dev:simulate": "ENABLE_TRANSACT=false tsx --env-file=.env_simulate src/index.ts",
     "dev:sign": "npm run dev --prefix sign-app",
+    "build:install-page": "tsx --env-file=.env_main scripts/build-install-page.mjs",
     "package:claude": "npm run package:claude:full",
     "package:claude:full": "node --env-file=.env_main scripts/package-claude.mjs full",
     "package:claude:simulate": "node --env-file=.env_simulate scripts/package-claude.mjs simulate",
