@@ -1,5 +1,5 @@
 {
-  "name": "remix-solidity-full",
+  "name": "remix-solidity",
   "displayName": "Remix Solidity (full)",
   "version": "1.0.0",
   "description": "Compile, deploy and interact with Solidity smart contracts directly from Claude. Transactions are signed in your own browser wallet via a signing page.",

@@ -22,7 +22,7 @@ One codebase, two builds, chosen by `ENABLE_TRANSACT`:
 - **Full** (default): all tools above, the signing page (`/sign/:id`), its API (`/api/*`) and the inline card.
 - **Simulate-only** (`ENABLE_TRANSACT=false`): only `compile_solidity`, `encode_call`, `read_contract` and `simulate`. `transact`, `check_transaction`, `/actions/transact`, `/actions/check-transaction`, the signing page and its API are not exposed, and the prompts, OpenAPI spec and plugin manifest no longer mention signing. `/health` reports `"mode": "simulate-only"`.
 
-Both builds serve `/privacy` (the privacy policy) and `/docs` (the documentation). Each page is one template in `assets/` (`privacy.html`, `docs.html`) with `<!--simulate-only-->`, `<!--full-only-->` and `<!--analytics-only-->` blocks; the server keeps only the blocks that apply, so the text always matches the build that serves it. Blocks must not be nested.
+Both builds serve `/privacy` (the privacy policy) and `/docs` (the documentation). Each page is one template in `assets/` (`privacy.html`, `docs.html`) with `<!--simulate-only-->`, `<!--full-only-->` and `<!--analytics-only-->` blocks; the server keeps only the blocks that apply, so the text always matches the build that serves it. Blocks must not be nested. The full build also serves `/install` (template `assets/install.html`), a page that explains how to add the unpublished full plugin by hand; the simulate-only server returns 404 for it.
 
 Deploy the simulate-only build on its own URL, without `PLUGIN_AUTH_TOKEN`, if you want to submit it to a connector directory (see below). The full build runs separately, for example on a dev URL.
 
@@ -32,8 +32,10 @@ Deploy the simulate-only build on its own URL, without `PLUGIN_AUTH_TOKEN`, if y
 src/              server: MCP (/mcp), REST actions (/actions/*), OpenAPI spec, signing page
 sign-app/         React wallet-signing app (built into sign-dist/)
 widget/           in-chat transaction card (MCP Apps), bundled into widget-dist/
-assets/           logo and the /privacy and /docs page templates
-plugins/claude/            Claude plugin, full build (plugin remix-solidity-full)
+assets/           logo and the /privacy, /docs and /install page templates
+docs/             ai-tools.html, a static copy of the install page (generated, see Connect)
+.claude-plugin/   marketplace.json: the `remixlabs` marketplace that lists the full plugin
+plugins/claude/            Claude plugin, full build (plugin remix-solidity, installed from the remixlabs marketplace)
 plugins/claude-simulate/   Claude plugin, simulate-only build (plugin remix-solidity)
 plugins/openai/gpt/            Custom GPT files, full build
 plugins/openai/gpt-simulate/   Custom GPT files, simulate-only build
@@ -97,7 +99,18 @@ npm run package:claude:full       # plugins/claude          → remix-solidity-p
 npm run package:claude:simulate   # plugins/claude-simulate → remix-solidity-simulate-plugin.zip
 ```
 
-The two plugins have different names, so both can be installed together. For a Claude connector, add `https://<your-host>/mcp` as a custom connector.
+Both plugins are named `remix-solidity`, so install only one of them.
+
+**Claude Code, full plugin from the marketplace** — the full plugin is not published to a public marketplace. `.claude-plugin/marketplace.json` makes this repository a marketplace named `remixlabs` that lists it (source `./plugins/claude`), so users add it by hand:
+
+```bash
+claude plugin marketplace add remix-project-org/remix-ai-plugin
+claude plugin install remix-solidity@remixlabs
+```
+
+The marketplace entry name must equal the `name` in `plugins/claude/.claude-plugin/plugin.json`, otherwise the install fails; validate both with `claude plugin validate .` and `claude plugin validate plugins/claude`. The full build serves these steps, with copy buttons, at `/install` (open a card directly with `/install#claude-plugin` or `/install#mcp`). A static copy for hosting elsewhere is in `docs/ai-tools.html`; regenerate it after editing the template with `npm run build:install-page`, which reads `BASE_URL` from `.env_main`.
+
+For a Claude connector, add `https://<your-host>/mcp` as a custom connector.
 
 **ChatGPT connector** — in developer mode, add `https://<your-host>/mcp` as an MCP connector.
 

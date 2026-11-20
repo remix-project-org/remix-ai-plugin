@@ -11,6 +11,7 @@ import { openApiSpec, pluginManifest } from "./openapi.js";
 import { trackEvent, analyticsEnabled, pageTracking } from "./analytics.js";
 import { TRANSACT_ENABLED } from "./features.js";
 import { retryAfterSeconds, rateLimitPerMinute } from "./ratelimit.js";
+import { renderPage } from "./pages.js";
 import { getTransaction, markSigning, markSent, markRejected, setWallets, type DetectedWallet, type UpdateResult } from "./store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -67,30 +68,21 @@ function json(res: http.ServerResponse, status: number, data: unknown) {
   res.end(JSON.stringify(data));
 }
 
-const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-
 /**
- * Fills in a static page from assets/: {{BASE_URL}}, {{BASE_HOST}} and {{MATOMO_SNIPPET}}, and
- * keeps only the <!--simulate-only-->, <!--full-only--> and <!--analytics-only--> blocks that apply
- * to this server (blocks must not be nested).
+ * Serves a static page from assets/ rendered for this server (see pages.ts). The Matomo snippet
+ * and the page's own inline script (the install page's copy buttons) are inline scripts, so the
+ * Content-Security-Policy allows them; the snippet also loads from and reports to the Matomo host.
  */
-function renderPage(html: string, tracking: ReturnType<typeof pageTracking>): string {
-  const applies = { simulate: !TRANSACT_ENABLED, full: TRANSACT_ENABLED, analytics: Boolean(tracking) };
-  return html
-    .replace(/<!--(simulate|full|analytics)-only-->([\s\S]*?)<!--\/\1-only-->/g, (_block, key: keyof typeof applies, body: string) => (applies[key] ? body : ""))
-    .replaceAll("{{BASE_URL}}", escapeHtml(BASE_URL))
-    .replaceAll("{{BASE_HOST}}", escapeHtml(new URL(BASE_URL).host))
-    .replaceAll("{{MATOMO_SNIPPET}}", tracking?.snippet ?? "");
-}
-
-function servePage(req: http.IncomingMessage, res: http.ServerResponse, file: string) {
+function servePage(req: http.IncomingMessage, res: http.ServerResponse, file: string, { inlineScript = false } = {}) {
   try {
     const tracking = pageTracking();
-    const html = renderPage(fs.readFileSync(path.join(ASSETS_DIR, file), "utf-8"), tracking);
-    // The Matomo snippet is an inline script that loads from, and reports to, the Matomo host.
-    const csp = tracking
-      ? `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' ${tracking.origin}; connect-src ${tracking.origin}; img-src ${tracking.origin}`
-      : "default-src 'none'; style-src 'unsafe-inline'";
+    const html = renderPage(fs.readFileSync(path.join(ASSETS_DIR, file), "utf-8"), { baseUrl: BASE_URL, full: TRANSACT_ENABLED, tracking });
+    const csp = [
+      "default-src 'none'",
+      "style-src 'unsafe-inline'",
+      ...(tracking || inlineScript ? [`script-src 'unsafe-inline'${tracking ? ` ${tracking.origin}` : ""}`] : []),
+      ...(tracking ? [`connect-src ${tracking.origin}`, `img-src ${tracking.origin}`] : []),
+    ].join("; ");
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "public, max-age=3600",
@@ -257,6 +249,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // How to add the unpublished full plugin by hand. It describes the full build, so the simulate-only server returns 404.
+  if (TRANSACT_ENABLED && url.pathname === "/install" && (req.method === "GET" || req.method === "HEAD")) {
+    servePage(req, res, "install.html", { inlineScript: true });
+    return;
+  }
+
   if (url.pathname === "/logo.png" && req.method === "GET") {
     try {
       const png = fs.readFileSync(path.join(ASSETS_DIR, "logo.png"));
@@ -412,6 +410,7 @@ const server = http.createServer(async (req, res) => {
         manifest:  "GET  /.well-known/ai-plugin.json",
         privacy:   "GET  /privacy",
         docs:      "GET  /docs",
+        ...(TRANSACT_ENABLED ? { install: "GET  /install" } : {}),
         openapi:   "GET  /openapi.json",
         actions:   TRANSACT_ENABLED
           ? "POST /actions/{compile,simulate,encode-call,read-contract,transact,check-transaction}"
